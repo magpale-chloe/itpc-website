@@ -1,0 +1,208 @@
+<div class="camera-container">
+
+  <header class="page-header">
+    <div class="brand-mark">
+      <img src="/assets/ITPC%20LOGO.png" alt="ITPC logo">
+    </div>
+    <div>
+      <p class="eyebrow">ITPC · CREATIVE STUDIO</p>
+      <h1>Photobooth</h1>
+    </div>
+    <span class="live-indicator">LIVE SET</span>
+  </header>
+
+  @if (boothStep() === 'capture') {
+  <div class="camera-preview" [class.camera-ready]="cameraOpened()">
+
+    <div class="preview-label">CAMERA PREVIEW</div>
+
+    <video
+      #video
+      autoplay
+      playsinline
+    ></video>
+
+    @if (!cameraOpened()) {
+      <div class="camera-setup">
+        <div class="setup-heading">
+          <p class="eyebrow">FIRST, CHOOSE YOUR FORMAT</p>
+          <h2>How many moments?</h2>
+        </div>
+
+        <div class="strip-options" role="list" aria-label="Photo strip options">
+          @for (photoCount of stripOptions; track photoCount) {
+            <button
+              class="strip-card"
+              [class.selected]="selectedStrip() === photoCount"
+              (click)="selectStrip(photoCount)"
+              [attr.aria-label]="photoCount + ' photo strip'"
+              [attr.aria-pressed]="selectedStrip() === photoCount"
+            >
+              <span class="strip-placeholder" aria-hidden="true">
+                @for (placeholder of [].constructor(photoCount); track $index) {
+                  <span class="placeholder-cell"></span>
+                }
+              </span>
+              <span class="strip-card-label">{{ photoCount }} photos</span>
+              <span class="strip-check" aria-hidden="true">✓</span>
+            </button>
+          }
+        </div>
+      </div>
+    }
+
+    @if (countdown() > 0) {
+      <div class="countdown">
+        {{ countdown() }}
+      </div>
+    }
+
+  </div>
+  }
+
+
+  <!-- OPEN CAMERA -->
+  @if (boothStep() === 'capture' && !cameraOpened()) {
+
+    <button
+      class="camera-button"
+      (click)="openCamera()"
+      [disabled]="cameraStarting()"
+    >
+      <span aria-hidden="true">↗</span>
+      {{ cameraStarting() ? 'Starting Camera...' : 'Open Camera' }}
+    </button>
+
+  }
+
+  @if (boothStep() === 'capture' && cameraError()) {
+    <p class="camera-error" role="alert">{{ cameraError() }}</p>
+  }
+
+
+  <!-- TAKE PHOTO -->
+  @if (boothStep() === 'capture' && cameraOpened()) {
+
+    <button
+      class="capture-button"
+      (click)="takePhoto()"
+      [disabled]="countdown() > 0 || cameraStarting() || capturing()"
+    >
+      <span aria-hidden="true">●</span>
+      {{ capturing() ? 'Taking Photos...' : 'Take Photo' }}
+    </button>
+
+  }
+
+
+  <canvas
+    #canvas
+    hidden
+  ></canvas>
+
+
+  @if (boothStep() === 'capture' && photoData().length > 0) {
+
+    <div class="photo-preview">
+
+      <h2>Your Photo Strip</h2>
+
+      <div class="captured-photos">
+        @for (photo of photoData(); track $index) {
+          <img
+            [src]="photo"
+            [alt]="'Captured photo ' + ($index + 1)"
+          >
+        }
+      </div>
+
+      <div class="photo-actions">
+
+        <button (click)="retakePhoto()">
+          <span aria-hidden="true">↺</span>
+          Retake
+        </button>
+
+        <button (click)="continuePhoto()">
+          <span aria-hidden="true">→</span>
+          Continue
+        </button>
+
+      </div>
+
+    </div>
+
+  }
+
+  @if (boothStep() === 'layout') {
+    <section class="layout-picker" aria-labelledby="layout-heading">
+      <div class="step-heading">
+        <p class="eyebrow">STEP 2 · MAKE IT YOURS</p>
+        <h2 id="layout-heading">Choose your photo strip</h2>
+        <p>Pick a style for your three-photo memory.</p>
+      </div>
+
+      <div class="layout-options" role="list" aria-label="Photo strip layouts">
+        @for (layout of layouts; track layout.id) {
+          <button
+            class="layout-card"
+            [class.selected]="selectedLayout() === layout.id"
+            (click)="selectLayout(layout.id)"
+            [attr.aria-label]="layout.name + ' layout'"
+            [attr.aria-pressed]="selectedLayout() === layout.id"
+          >
+            <span class="layout-art" [class.dark-layout]="layout.id === 'dark'">
+              <img [src]="layout.image" [alt]="layout.name + ' template'">
+              @for (photo of photoData().slice(0, 3); track $index) {
+                <img class="layout-photo" [src]="photo" [alt]="'Captured photo ' + ($index + 1)">
+              }
+            </span>
+            <span class="layout-name">{{ layout.name }}</span>
+            <span class="layout-check" aria-hidden="true">✓</span>
+          </button>
+        }
+      </div>
+
+      <div class="photo-actions">
+        <button (click)="retakePhoto()"><span aria-hidden="true">↺</span> Retake</button>
+        <button class="primary-action" (click)="useLayout()"><span aria-hidden="true">→</span> Use this layout</button>
+      </div>
+    </section>
+  }
+
+  @if (boothStep() === 'finished') {
+    <section class="finished-preview" aria-labelledby="finished-heading">
+      <div class="step-heading">
+        <p class="eyebrow">YOUR PHOTO STRIP IS READY</p>
+        <h2 id="finished-heading">{{ selectedLayout() === 'light' ? 'Teal Celebration' : 'Midnight Classic' }}</h2>
+        @if (sharingPhoto()) {
+          <p>Preparing your phone download...</p>
+        } @else if (qrCodeData()) {
+          <p>Scan to download this strip on your phone.</p>
+        } @else if (shareError()) {
+          <p class="camera-error" role="alert">{{ shareError() }}</p>
+        }
+      </div>
+
+      @if (qrCodeData()) {
+        <div class="qr-download">
+          <img [src]="qrCodeData()" alt="QR code to download your photo strip on a phone">
+          <span>Open your camera and scan</span>
+        </div>
+      }
+
+      <div class="final-strip" [class.dark-layout]="selectedLayout() === 'dark'">
+        <img class="strip-template" [src]="layouts.find(layout => layout.id === selectedLayout())!.image" alt="Selected photo strip layout">
+        @for (photo of photoData().slice(0, 3); track $index) {
+          <img class="layout-photo" [src]="photo" [alt]="'Captured photo ' + ($index + 1)">
+        }
+      </div>
+
+      <div class="photo-actions">
+        <button (click)="boothStep.set('layout')"><span aria-hidden="true">←</span> Change layout</button>
+        <button class="primary-action" (click)="downloadPhotoStrip()"><span aria-hidden="true">↓</span> Download strip</button>
+      </div>
+    </section>
+  }
+
+</div>
