@@ -17,9 +17,11 @@ import { PHOTO_API_BASE_URL } from '../api.config';
 })
 export class Camera {
 
+  private readonly photoAspectRatio = 480 / 394;
+
   readonly layouts = [
-    { id: 'light', name: 'Teal Celebration', image: '/assets/3-light.png' },
-    { id: 'dark', name: 'Midnight Classic', image: '/assets/3-dark.png' }
+    { id: 'light', name: 'ITPC Light', image: '/assets/3-light.png' },
+    { id: 'dark', name: 'ITPC Dark', image: '/assets/3-dark.png' }
   ] as const;
 
   @ViewChild('video')
@@ -168,8 +170,22 @@ export class Camera {
       return null;
     }
 
+    const sourceAspectRatio = video.videoWidth / video.videoHeight;
+    let sourceWidth = video.videoWidth;
+    let sourceHeight = video.videoHeight;
+    let sourceX = 0;
+    let sourceY = 0;
+
+    if (sourceAspectRatio > this.photoAspectRatio) {
+      sourceWidth = video.videoHeight * this.photoAspectRatio;
+      sourceX = (video.videoWidth - sourceWidth) / 2;
+    } else {
+      sourceHeight = video.videoWidth / this.photoAspectRatio;
+      sourceY = (video.videoHeight - sourceHeight) / 2;
+    }
+
     canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.height = Math.round(canvas.width / this.photoAspectRatio);
 
     const context = canvas.getContext('2d');
 
@@ -180,7 +196,17 @@ export class Camera {
     context.save();
     context.translate(canvas.width, 0);
     context.scale(-1, 1);
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    context.drawImage(
+      video,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
     context.restore();
 
     console.log('Photo captured');

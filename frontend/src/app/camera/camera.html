@@ -8,13 +8,10 @@
       <p class="eyebrow">ITPC · CREATIVE STUDIO</p>
       <h1>Photobooth</h1>
     </div>
-    <span class="live-indicator">LIVE SET</span>
   </header>
 
   @if (boothStep() === 'capture') {
   <div class="camera-preview" [class.camera-ready]="cameraOpened()">
-
-    <div class="preview-label">CAMERA PREVIEW</div>
 
     <video
       #video
@@ -174,7 +171,7 @@
     <section class="finished-preview" aria-labelledby="finished-heading">
       <div class="step-heading">
         <p class="eyebrow">YOUR PHOTO STRIP IS READY</p>
-        <h2 id="finished-heading">{{ selectedLayout() === 'light' ? 'Teal Celebration' : 'Midnight Classic' }}</h2>
+        <h2 id="finished-heading">{{ layouts.find(layout => layout.id === selectedLayout())!.name }}</h2>
         @if (sharingPhoto()) {
           <p>Preparing your phone download...</p>
         } @else if (qrCodeData()) {
@@ -199,6 +196,7 @@
       </div>
 
       <div class="photo-actions">
+        <button (click)="retakePhoto()"><span aria-hidden="true">↺</span> Take another photo</button>
         <button (click)="boothStep.set('layout')"><span aria-hidden="true">←</span> Change layout</button>
         <button class="primary-action" (click)="downloadPhotoStrip()"><span aria-hidden="true">↓</span> Download strip</button>
       </div>
