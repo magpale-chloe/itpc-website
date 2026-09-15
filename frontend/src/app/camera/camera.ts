@@ -8,6 +8,18 @@ import {
 import * as QRCode from 'qrcode';
 import { PHOTO_API_BASE_URL } from '../api.config';
 
+type PhotoCount = 2 | 3 | 4;
+
+interface StripLayout {
+  id: string;
+  name: string;
+  photoCount: PhotoCount;
+  image: string;
+  width: number;
+  height: number;
+  slots: { x: number; y: number; width: number; height: number; rotation: number }[];
+}
+
 @Component({
   selector: 'app-camera',
   standalone: true,
@@ -17,12 +29,23 @@ import { PHOTO_API_BASE_URL } from '../api.config';
 })
 export class Camera {
 
-  private readonly photoAspectRatio = 480 / 394;
-
-  readonly layouts = [
-    { id: 'light', name: 'ITPC Light', image: '/assets/3-light.png' },
-    { id: 'dark', name: 'ITPC Dark', image: '/assets/3-dark.png' }
-  ] as const;
+  readonly layouts: StripLayout[] = [
+    ...this.createLayouts(2, 1240, 620, [
+      { x: 143, y: 60, width: 500, height: 316, rotation: 7 },
+      { x: 632, y: 230, width: 500, height: 316, rotation: -4 }
+    ]),
+    ...this.createLayouts(3, 600, 1800, [
+      { x: 53, y: 372, width: 493, height: 298, rotation: 0 },
+      { x: 53, y: 711, width: 493, height: 298, rotation: 0 },
+      { x: 53, y: 1050, width: 493, height: 298, rotation: 0 }
+    ]),
+    ...this.createLayouts(4, 600, 1800, [
+      { x: 54, y: 207, width: 492, height: 298, rotation: 0 },
+      { x: 54, y: 528, width: 492, height: 298, rotation: 0 },
+      { x: 54, y: 850, width: 492, height: 298, rotation: 0 },
+      { x: 54, y: 1170, width: 492, height: 298, rotation: 0 }
+    ])
+  ];
 
   @ViewChild('video')
   video!: ElementRef<HTMLVideoElement>;
@@ -37,7 +60,7 @@ export class Camera {
   photoData = signal<string[]>([]);
   capturing = signal(false);
   selectedStrip = signal(3);
-  selectedLayout = signal<'light' | 'dark'>('light');
+  selectedLayout = signal('3-itpc');
   boothStep = signal<'capture' | 'layout' | 'finished'>('capture');
   qrCodeData = signal('');
   sharingPhoto = signal(false);
@@ -48,11 +71,27 @@ export class Camera {
   constructor(private cdr: ChangeDetectorRef) {}
 
   selectStrip(photoCount: number): void {
-    this.selectedStrip.set(photoCount);
+    if (photoCount === 2 || photoCount === 3 || photoCount === 4) {
+      this.selectedStrip.set(photoCount);
+      this.selectedLayout.set(`${photoCount}-itpc`);
+    }
   }
 
-  selectLayout(layout: 'light' | 'dark'): void {
+  selectLayout(layout: string): void {
     this.selectedLayout.set(layout);
+  }
+
+  get captureAspectRatio(): number {
+    const layout = this.layouts.find(item => item.id === this.selectedLayout())
+      ?? this.layouts.find(item => item.photoCount === this.selectedStrip())
+      ?? this.layouts[0];
+
+    const slot = layout.slots[0];
+    return slot.width / slot.height;
+  }
+
+  layoutsForSelectedStrip(): StripLayout[] {
+    return this.layouts.filter(layout => layout.photoCount === this.selectedStrip());
   }
 
   async openCamera(): Promise<void> {
@@ -176,16 +215,16 @@ export class Camera {
     let sourceX = 0;
     let sourceY = 0;
 
-    if (sourceAspectRatio > this.photoAspectRatio) {
-      sourceWidth = video.videoHeight * this.photoAspectRatio;
+    if (sourceAspectRatio > this.captureAspectRatio) {
+      sourceWidth = video.videoHeight * this.captureAspectRatio;
       sourceX = (video.videoWidth - sourceWidth) / 2;
     } else {
-      sourceHeight = video.videoWidth / this.photoAspectRatio;
+      sourceHeight = video.videoWidth / this.captureAspectRatio;
       sourceY = (video.videoHeight - sourceHeight) / 2;
     }
 
     canvas.width = video.videoWidth;
-    canvas.height = Math.round(canvas.width / this.photoAspectRatio);
+    canvas.height = Math.round(canvas.width / this.captureAspectRatio);
 
     const context = canvas.getContext('2d');
 
@@ -218,9 +257,10 @@ export class Camera {
     this.photoData.set([]);
     this.boothStep.set('capture');
     this.cameraOpened.set(false);
+    this.cameraStarting.set(false);
+    this.cameraError.set('');
+    this.countdown.set(0);
     this.cdr.detectChanges();
-
-    setTimeout(() => void this.openCamera());
   }
 
   continuePhoto(): void {
@@ -273,25 +313,46 @@ export class Camera {
   }
 
   private async renderPhotoStrip(): Promise<string> {
+    const layout = this.layouts.find(item => item.id === this.selectedLayout());
+    if (!layout) {
+      throw new Error('Photo strip layout is unavailable');
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = 600;
-    canvas.height = 1800;
+    canvas.width = layout.width;
+    canvas.height = layout.height;
 
     const context = canvas.getContext('2d');
     if (!context) {
       throw new Error('Canvas is unavailable');
     }
 
-    const template = await this.loadImage(this.layouts.find(layout => layout.id === this.selectedLayout())!.image);
-    context.drawImage(template, 0, 0, canvas.width, canvas.height);
-
-    const slot = { x: 60, width: 480, height: 394 };
-    const slotTops = [432, 842, 1253];
-    const photos = await Promise.all(this.photoData().slice(0, 3).map(photo => this.loadImage(photo)));
+    const photos = await Promise.all(this.photoData().slice(0, layout.photoCount).map(photo => this.loadImage(photo)));
 
     photos.forEach((photo, index) => {
-      context.drawImage(photo, slot.x, slotTops[index], slot.width, slot.height);
+      const slot = layout.slots[index];
+      const photoAspectRatio = photo.width / photo.height;
+      const slotAspectRatio = slot.width / slot.height;
+      let drawWidth = slot.width;
+      let drawHeight = slot.height;
+
+      if (photoAspectRatio > slotAspectRatio) {
+        drawHeight = slot.height;
+        drawWidth = slot.height * photoAspectRatio;
+      } else {
+        drawWidth = slot.width;
+        drawHeight = slot.width / photoAspectRatio;
+      }
+
+      context.save();
+      context.translate(slot.x + slot.width / 2, slot.y + slot.height / 2);
+      context.rotate(slot.rotation * Math.PI / 180);
+      context.drawImage(photo, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+      context.restore();
     });
+
+    const template = await this.loadImage(layout.image);
+    context.drawImage(template, 0, 0, canvas.width, canvas.height);
 
     return canvas.toDataURL('image/png');
   }
@@ -331,5 +392,26 @@ export class Camera {
     }
 
     throw new Error('Video stream did not become ready');
+  }
+
+  private createLayouts(
+    photoCount: PhotoCount,
+    width: number,
+    height: number,
+    slots: StripLayout['slots']
+  ): StripLayout[] {
+    return [
+      ['comicstrip', 'Comic Strip'],
+      ['itpcstrip', 'ITPC Strip'],
+      ['redstrip', 'Red Strip']
+    ].map(([style, name]) => ({
+      id: `${photoCount}-${style.replace('strip', '')}`,
+      name,
+      photoCount,
+      image: `/assets/fv ${photoCount}-${style}.png`,
+      width,
+      height,
+      slots
+    }));
   }
 }

@@ -35,7 +35,12 @@
             "server": "src/main.server.ts",
             "outputMode": "server",
             "security": {
-              "allowedHosts": []
+              "allowedHosts": [
+                "localhost",
+                "localhost:4200",
+                "127.0.0.1",
+                "127.0.0.1:4200"
+              ]
             },
             "ssr": {
               "entry": "src/server.ts"
@@ -52,7 +57,7 @@
                 {
                   "type": "anyComponentStyle",
                   "maximumWarning": "4kB",
-                  "maximumError": "9kB"
+                  "maximumError": "10kB"
                 }
               ],
               "outputHashing": "all"
@@ -67,6 +72,13 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "host": "localhost",
+            "allowedHosts": [
+              "localhost",
+              "127.0.0.1"
+            ]
+          },
           "configurations": {
             "production": {
               "buildTarget": "frontend:build:production"

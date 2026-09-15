@@ -1,0 +1,32 @@
+<main class="admin-shell">
+  <header class="admin-topbar">
+    <a class="admin-brand" href="/" aria-label="Return to ITPC home">
+      <img src="/assets/ITPC%20LOGO.png" alt="ITPC logo">
+    </a>
+    <div class="admin-account">
+      <span>Executive Board / {{ username }}</span>
+      <button type="button" (click)="logout()">Log out</button>
+    </div>
+  </header>
+
+  <section class="admin-intro" aria-labelledby="admin-title">
+    <p class="admin-kicker">ITPC / EXECUTIVE BOARD</p>
+    <h1 id="admin-title">Good to see you<br><em>back.</em></h1>
+    <p>Welcome to the executive workspace. This is where ITPC updates, projects, and internal work can come together.</p>
+  </section>
+
+  <section class="admin-grid" aria-label="Executive Board tools">
+    <article class="admin-card admin-card-main">
+      <span class="admin-card-number">01 / CREATIVE TOOL</span>
+      <h2>Capture the moment.</h2>
+      <p>Open the ITPC photobooth and create a photo strip for your next organization activity.</p>
+      <button type="button" (click)="openPhotobooth()">Open photobooth <span aria-hidden="true">↗</span></button>
+    </article>
+    <article class="admin-card admin-card-coming-soon">
+      <span class="admin-card-number">02 / EXECUTIVE TOOL</span>
+      <h2>Log duty hours.</h2>
+      <p>Track executive board service and keep your organization work organized.</p>
+      <span class="coming-soon-label">Coming soon</span>
+    </article>
+  </section>
+</main>

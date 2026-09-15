@@ -11,7 +11,11 @@
   </header>
 
   @if (boothStep() === 'capture') {
-  <div class="camera-preview" [class.camera-ready]="cameraOpened()">
+  <div
+    class="camera-preview"
+    [class.camera-ready]="cameraOpened()"
+    [style.aspect-ratio]="captureAspectRatio + ' / 1'"
+  >
 
     <video
       #video
@@ -104,7 +108,10 @@
 
       <h2>Your Photo Strip</h2>
 
-      <div class="captured-photos">
+      <div
+        class="captured-photos"
+        [style.grid-template-columns]="'repeat(' + selectedStrip() + ', minmax(0, 1fr))'"
+      >
         @for (photo of photoData(); track $index) {
           <img
             [src]="photo"
@@ -114,11 +121,6 @@
       </div>
 
       <div class="photo-actions">
-
-        <button (click)="retakePhoto()">
-          <span aria-hidden="true">↺</span>
-          Retake
-        </button>
 
         <button (click)="continuePhoto()">
           <span aria-hidden="true">→</span>
@@ -136,11 +138,11 @@
       <div class="step-heading">
         <p class="eyebrow">STEP 2 · MAKE IT YOURS</p>
         <h2 id="layout-heading">Choose your photo strip</h2>
-        <p>Pick a style for your three-photo memory.</p>
+        <p>Pick a style for your {{ selectedStrip() }}-photo memory.</p>
       </div>
 
       <div class="layout-options" role="list" aria-label="Photo strip layouts">
-        @for (layout of layouts; track layout.id) {
+        @for (layout of layoutsForSelectedStrip(); track layout.id) {
           <button
             class="layout-card"
             [class.selected]="selectedLayout() === layout.id"
@@ -148,11 +150,22 @@
             [attr.aria-label]="layout.name + ' layout'"
             [attr.aria-pressed]="selectedLayout() === layout.id"
           >
-            <span class="layout-art" [class.dark-layout]="layout.id === 'dark'">
-              <img [src]="layout.image" [alt]="layout.name + ' template'">
-              @for (photo of photoData().slice(0, 3); track $index) {
-                <img class="layout-photo" [src]="photo" [alt]="'Captured photo ' + ($index + 1)">
+            <span class="layout-art" [style.aspect-ratio]="layout.width + ' / ' + layout.height">
+              @for (slot of layout.slots; track $index) {
+                @if (photoData()[$index]; as photo) {
+                  <span
+                    class="layout-photo-frame"
+                    [style.left.%]="slot.x / layout.width * 100"
+                    [style.top.%]="slot.y / layout.height * 100"
+                    [style.width.%]="slot.width / layout.width * 100"
+                    [style.height.%]="slot.height / layout.height * 100"
+                    [style.transform]="'rotate(' + slot.rotation + 'deg)'"
+                  >
+                    <img class="layout-photo" [src]="photo" [alt]="'Captured photo ' + ($index + 1)">
+                  </span>
+                }
               }
+              <img class="strip-template" [src]="layout.image" [alt]="layout.name + ' template'">
             </span>
             <span class="layout-name">{{ layout.name }}</span>
             <span class="layout-check" aria-hidden="true">✓</span>
@@ -168,14 +181,13 @@
   }
 
   @if (boothStep() === 'finished') {
+    @let selectedTemplate = layouts.find(layout => layout.id === selectedLayout())!;
     <section class="finished-preview" aria-labelledby="finished-heading">
       <div class="step-heading">
         <p class="eyebrow">YOUR PHOTO STRIP IS READY</p>
-        <h2 id="finished-heading">{{ layouts.find(layout => layout.id === selectedLayout())!.name }}</h2>
+        <h2 id="finished-heading">{{ selectedTemplate.name }}</h2>
         @if (sharingPhoto()) {
           <p>Preparing your phone download...</p>
-        } @else if (qrCodeData()) {
-          <p>Scan to download this strip on your phone.</p>
         } @else if (shareError()) {
           <p class="camera-error" role="alert">{{ shareError() }}</p>
         }
@@ -183,16 +195,31 @@
 
       @if (qrCodeData()) {
         <div class="qr-download">
+          <span>Scan to download this strip on your phone.</span>
           <img [src]="qrCodeData()" alt="QR code to download your photo strip on a phone">
-          <span>Open your camera and scan</span>
         </div>
       }
 
-      <div class="final-strip" [class.dark-layout]="selectedLayout() === 'dark'">
-        <img class="strip-template" [src]="layouts.find(layout => layout.id === selectedLayout())!.image" alt="Selected photo strip layout">
-        @for (photo of photoData().slice(0, 3); track $index) {
-          <img class="layout-photo" [src]="photo" [alt]="'Captured photo ' + ($index + 1)">
+      <div
+        class="final-strip"
+        [attr.data-photo-count]="selectedTemplate.photoCount"
+        [style.aspect-ratio]="selectedTemplate.width + ' / ' + selectedTemplate.height"
+      >
+        @for (slot of selectedTemplate.slots; track $index) {
+          @if (photoData()[$index]; as photo) {
+            <span
+              class="layout-photo-frame"
+              [style.left.%]="slot.x / selectedTemplate.width * 100"
+              [style.top.%]="slot.y / selectedTemplate.height * 100"
+              [style.width.%]="slot.width / selectedTemplate.width * 100"
+              [style.height.%]="slot.height / selectedTemplate.height * 100"
+              [style.transform]="'rotate(' + slot.rotation + 'deg)'"
+            >
+              <img class="layout-photo" [src]="photo" [alt]="'Captured photo ' + ($index + 1)">
+            </span>
+          }
         }
+        <img class="strip-template" [src]="selectedTemplate.image" alt="Selected photo strip layout">
       </div>
 
       <div class="photo-actions">

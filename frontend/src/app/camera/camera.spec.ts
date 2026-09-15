@@ -28,8 +28,8 @@ describe('Camera', () => {
   });
 
   it('keeps the selected layout when the user changes it', () => {
-    component.selectLayout('dark');
+    component.selectLayout('3-itpc');
 
-    expect(component.selectedLayout()).toBe('dark');
+    expect(component.selectedLayout()).toBe('3-itpc');
   });
 });
