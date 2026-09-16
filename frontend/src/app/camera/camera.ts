@@ -408,7 +408,7 @@ export class Camera {
       id: `${photoCount}-${style.replace('strip', '')}`,
       name,
       photoCount,
-      image: `/assets/fv ${photoCount}-${style}.png`,
+      image: `assets/fv ${photoCount}-${style}.png`,
       width,
       height,
       slots
