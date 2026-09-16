@@ -5,6 +5,7 @@ import { filter } from 'rxjs';
 import { signal } from '@angular/core';
 import { Admin } from './admin/admin';
 import { Camera } from './camera/camera';
+import { PHOTO_API_BASE_URL } from './api.config';
 
 interface Highlight {
   number: string;
@@ -28,7 +29,7 @@ interface AuthUser {
   styleUrl: './app.scss'
 })
 export class App {
-  readonly authApiUrl = 'http://localhost:3000/api/auth';
+  readonly authApiUrl = `${PHOTO_API_BASE_URL}/api/auth`;
 
   loginOpen = false;
   loginRole: LoginRole = 'executive';
