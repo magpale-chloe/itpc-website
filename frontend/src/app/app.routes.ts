@@ -14,6 +14,7 @@ export const routes: Routes = [
 	},
 	{
 		path: 'photobooth',
+		canActivate: [authGuard],
 		loadComponent: () => import('./camera/camera').then(({ Camera }) => Camera)
 	}
 ];
