@@ -6,6 +6,7 @@ import {
   signal
 } from '@angular/core';
 import * as QRCode from 'qrcode';
+import { Router } from '@angular/router';
 import { PHOTO_API_BASE_URL } from '../api.config';
 
 type PhotoCount = 2 | 3 | 4;
@@ -68,7 +69,14 @@ export class Camera {
   readonly stripOptions = [2, 3, 4];
   private mediaStream: MediaStream | null = null;
 
-  constructor(private cdr: ChangeDetectorRef) {}
+  constructor(
+    private cdr: ChangeDetectorRef,
+    private readonly router: Router
+  ) {}
+
+  goBack(): void {
+    void this.router.navigateByUrl('/admin');
+  }
 
   selectStrip(photoCount: number): void {
     if (photoCount === 2 || photoCount === 3 || photoCount === 4) {

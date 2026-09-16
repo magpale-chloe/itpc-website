@@ -42,4 +42,8 @@ export class Admin {
   openPhotobooth(): void {
     void this.router.navigateByUrl('/photobooth');
   }
+
+  goHome(): void {
+    void this.router.navigateByUrl('/');
+  }
 }

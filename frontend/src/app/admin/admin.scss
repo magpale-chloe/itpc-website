@@ -27,6 +27,7 @@
 .admin-brand { width: 74px; height: 42px; display: block; }
 .admin-brand img { width: 100%; height: 100%; display: block; object-fit: contain; object-position: left center; }
 .admin-account { display: flex; align-items: center; gap: 20px; color: var(--muted); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.admin-account button:first-child { color: var(--teal); border-color: var(--teal); }
 .admin-account button { padding: 9px 13px; border: 1px solid var(--darkblue); color: var(--darkblue); background: transparent; font: inherit; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
 .admin-account button:hover { color: var(--paper); background: var(--darkblue); }
 
