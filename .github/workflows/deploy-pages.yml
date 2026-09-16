@@ -38,8 +38,15 @@ jobs:
         working-directory: frontend
         run: npm run build -- --base-href "/${{ github.event.repository.name }}/"
 
+      - name: Show build output
+        run: |
+          echo "Checking frontend/dist..."
+          ls -la frontend/dist
+          echo "Checking all files inside frontend/dist..."
+          find frontend/dist -maxdepth 3 -type f
+
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: frontend/dist/frontend/browser
 
@@ -55,3 +62,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
