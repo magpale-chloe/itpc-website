@@ -10,11 +10,13 @@ export const routes: Routes = [
 	{
 		path: 'admin',
 		canActivate: [authGuard],
+		data: { roles: ['executive', 'committee'] },
 		loadComponent: () => import('./admin/admin').then(({ Admin }) => Admin)
 	},
 	{
 		path: 'photobooth',
 		canActivate: [authGuard],
+		data: { roles: ['executive'] },
 		loadComponent: () => import('./camera/camera').then(({ Camera }) => Camera)
 	}
 ];

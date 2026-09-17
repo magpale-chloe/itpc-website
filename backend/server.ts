@@ -7,13 +7,14 @@ const PORT = Number(process.env.PORT) || 3000;
 const photoStore = new Map<string, { data: Buffer; expiresAt: number }>();
 const PHOTO_LIFETIME_MS = 30 * 60 * 1000;
 const SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000;
-type LoginRole = 'executive';
+type LoginRole = 'executive' | 'committee';
 type AuthUser = { username: string; role: LoginRole };
 type StoredCredential = AuthUser & { password: string };
 type Session = AuthUser & { expiresAt: number };
 
 const credentials: StoredCredential[] = [
-  { username: process.env.ITPC_USERNAME || '', password: process.env.ITPC_PASSWORD || '', role: 'executive' }
+  { username: process.env.ITPC_USERNAME || '', password: process.env.ITPC_PASSWORD || '', role: 'executive' },
+  { username: process.env.ITPC_COMMITTEE_USERNAME || '', password: process.env.ITPC_COMMITTEE_PASSWORD || '', role: 'committee' }
 ];
 const sessions = new Map<string, Session>();
 
@@ -125,7 +126,7 @@ app.listen(PORT, () => {
 });
 
 function isLoginRole(value: unknown): value is LoginRole {
-  return value === 'executive';
+  return value === 'executive' || value === 'committee';
 }
 
 function sameSecret(expected: string, actual: string): boolean {

@@ -92,26 +92,21 @@ h1 {
   animation: rise-in 0.65s 0.08s ease both;
 }
 
-.camera-preview::after {
-  content: '';
-  position: absolute;
-  inset: 16px;
-  border: 1px solid rgba(233, 241, 245, 0.36);
-  border-radius: 14px;
-  pointer-events: none;
-}
-
 .camera-preview video {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-  transform: scaleX(-1);
-  opacity: 0;
-  transition: opacity 0.35s ease;
+  display: none;
 }
 
-.camera-preview.camera-ready video {
+.camera-preview .camera-live-crop {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 86%;
+  height: 84%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  border-radius: 18px;
+}
+
+.camera-preview.camera-ready .camera-live-crop {
   opacity: 1;
 }
 
@@ -160,12 +155,10 @@ h1 {
   background: rgba(233, 241, 245, 0.1);
   font: inherit;
   cursor: pointer;
-  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
 
 .strip-card:hover,
 .strip-card.selected {
-  transform: translateY(-4px);
   border-color: var(--cyan);
   background: rgba(4, 198, 212, 0.22);
 }
@@ -427,21 +420,29 @@ h1 {
 }
 
 .layout-options {
-  width: 100%;
+  width: min(100%, 980px);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 20px;
+}
+
+.layout-options.two-up {
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+}
+
+.layout-options.two-up > .layout-card:last-child {
+  grid-column: 1 / -1;
 }
 
 .layout-card {
   min-width: 0;
   position: relative;
-  padding: 6px;
+  padding: 16px 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
   border: 2px solid transparent;
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--navy);
   background: #eef7f8;
   font: inherit;
@@ -466,8 +467,9 @@ h1 {
 }
 
 .layout-art {
-  width: min(100%, 250px);
-  aspect-ratio: 0.34;
+  width: 100%;
+  max-width: 500px;
+  aspect-ratio: 0.9;
   margin: 0 auto;
 }
 
@@ -496,7 +498,8 @@ h1 {
 }
 
 .layout-name {
-  padding: 0 4px 3px;
+  padding: 0 6px 4px;
+  font-size: 1.05rem;
   font-weight: 800;
 }
 

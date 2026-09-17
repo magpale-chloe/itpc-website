@@ -5,24 +5,26 @@
     </a>
     <div class="admin-account">
       <button type="button" (click)="goHome()">Back</button>
-      <span>Executive Board / {{ username }}</span>
+      <span>{{ roleLabel }} / {{ username }}</span>
       <button type="button" (click)="logout()">Log out</button>
     </div>
   </header>
 
   <section class="admin-intro" aria-labelledby="admin-title">
-    <p class="admin-kicker">ITPC / EXECUTIVE BOARD</p>
+    <p class="admin-kicker">ITPC / {{ roleLabel }}</p>
     <h1 id="admin-title">Good to see you<br><em>back.</em></h1>
-    <p>Welcome to the executive workspace. This is where ITPC updates, projects, and internal work can come together.</p>
+    <p>Welcome to the {{ roleLabel }} workspace. This is where ITPC updates, projects, and internal work can come together.</p>
   </section>
 
-  <section class="admin-grid" aria-label="Executive Board tools">
+  <section class="admin-grid" aria-label="ITPC workspace tools">
+    @if (canUsePhotobooth) {
     <article class="admin-card admin-card-main">
       <span class="admin-card-number">01 / CREATIVE TOOL</span>
       <h2>Capture the moment.</h2>
       <p>Open the ITPC photobooth and create a photo strip for your next organization activity.</p>
       <button type="button" (click)="openPhotobooth()">Open photobooth <span aria-hidden="true">↗</span></button>
     </article>
+    }
     <article class="admin-card admin-card-coming-soon">
       <span class="admin-card-number">02 / EXECUTIVE TOOL</span>
       <h2>Log duty hours.</h2>

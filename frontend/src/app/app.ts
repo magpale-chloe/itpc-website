@@ -14,7 +14,7 @@ interface Highlight {
   tag: string;
 }
 
-type LoginRole = 'executive';
+type LoginRole = 'executive' | 'committee';
 
 interface AuthUser {
   username: string;
@@ -58,6 +58,10 @@ export class App {
 
   isPhotoboothPage(): boolean {
     return this.photoboothPage();
+  }
+
+  roleLabel(role: LoginRole): string {
+    return role === 'executive' ? 'Executive Board' : 'Committee / JO';
   }
 
   readonly highlights: Highlight[] = [
@@ -126,7 +130,7 @@ export class App {
       this.loginOpen = false;
       const adminOpened = await this.router.navigateByUrl('/admin');
       if (!adminOpened) {
-        throw new Error('The Executive Board page could not be opened.');
+        throw new Error('The workspace page could not be opened.');
       }
     } catch (error) {
       this.loginError = error instanceof TypeError

@@ -9,10 +9,16 @@ import { Router } from '@angular/router';
 })
 export class Admin {
   readonly username: string;
+  readonly role: 'executive' | 'committee';
+  readonly roleLabel: string;
+  readonly canUsePhotobooth: boolean;
 
   constructor(private readonly router: Router) {
     if (typeof sessionStorage === 'undefined') {
       this.username = '';
+      this.role = 'executive';
+      this.roleLabel = 'Executive Board';
+      this.canUsePhotobooth = false;
       return;
     }
 
@@ -20,16 +26,25 @@ export class Admin {
     const token = sessionStorage.getItem('itpc-session-token');
 
     try {
-      const user = storedUser ? JSON.parse(storedUser) as { username?: string; role?: string } : null;
-      if (!token || user?.role !== 'executive' || !user.username) {
+      const user = storedUser ? JSON.parse(storedUser) as { username?: string; role?: 'executive' | 'committee' } : null;
+      if (!token || !user?.username || (user.role !== 'executive' && user.role !== 'committee')) {
         void this.router.navigateByUrl('/');
         this.username = '';
+        this.role = 'executive';
+        this.roleLabel = 'Executive Board';
+        this.canUsePhotobooth = false;
         return;
       }
       this.username = user.username;
+      this.role = user.role;
+      this.roleLabel = user.role === 'executive' ? 'Executive Board' : 'Committee / JO';
+      this.canUsePhotobooth = user.role === 'executive';
     } catch {
       void this.router.navigateByUrl('/');
       this.username = '';
+      this.role = 'executive';
+      this.roleLabel = 'Executive Board';
+      this.canUsePhotobooth = false;
     }
   }
 

@@ -32,19 +32,19 @@ export class Camera {
 
   readonly layouts: StripLayout[] = [
     ...this.createLayouts(2, 1240, 620, [
-      { x: 143, y: 60, width: 500, height: 316, rotation: 7 },
-      { x: 632, y: 230, width: 500, height: 316, rotation: -4 }
+      { x: 137, y: 52, width: 505, height: 332, rotation: 7 },
+      { x: 629, y: 228, width: 505, height: 332, rotation: -4 }
     ]),
     ...this.createLayouts(3, 600, 1800, [
-      { x: 53, y: 372, width: 493, height: 298, rotation: 0 },
-      { x: 53, y: 711, width: 493, height: 298, rotation: 0 },
-      { x: 53, y: 1050, width: 493, height: 298, rotation: 0 }
+      { x: 32, y: 357, width: 535, height: 312, rotation: 0 },
+      { x: 32, y: 697, width: 535, height: 312, rotation: 0 },
+      { x: 32, y: 1035, width: 535, height: 312, rotation: 0 }
     ]),
     ...this.createLayouts(4, 600, 1800, [
-      { x: 54, y: 207, width: 492, height: 298, rotation: 0 },
-      { x: 54, y: 528, width: 492, height: 298, rotation: 0 },
-      { x: 54, y: 850, width: 492, height: 298, rotation: 0 },
-      { x: 54, y: 1170, width: 492, height: 298, rotation: 0 }
+      { x: 30, y: 193, width: 540, height: 312, rotation: 0 },
+      { x: 30, y: 514, width: 540, height: 312, rotation: 0 },
+      { x: 30, y: 835, width: 540, height: 312, rotation: 0 },
+      { x: 30, y: 1156, width: 540, height: 312, rotation: 0 }
     ])
   ];
 
@@ -53,6 +53,9 @@ export class Camera {
 
   @ViewChild('canvas')
   canvas!: ElementRef<HTMLCanvasElement>;
+
+  @ViewChild('previewCanvas')
+  previewCanvas!: ElementRef<HTMLCanvasElement>;
 
   cameraOpened = signal(false);
   cameraStarting = signal(false);
@@ -68,6 +71,7 @@ export class Camera {
   shareError = signal('');
   readonly stripOptions = [2, 3, 4];
   private mediaStream: MediaStream | null = null;
+  private previewLoopId: number | null = null;
 
   constructor(
     private cdr: ChangeDetectorRef,
@@ -82,11 +86,13 @@ export class Camera {
     if (photoCount === 2 || photoCount === 3 || photoCount === 4) {
       this.selectedStrip.set(photoCount);
       this.selectedLayout.set(`${photoCount}-itpc`);
+      this.refreshCameraPreview();
     }
   }
 
   selectLayout(layout: string): void {
     this.selectedLayout.set(layout);
+    this.refreshCameraPreview();
   }
 
   get captureAspectRatio(): number {
@@ -135,6 +141,7 @@ export class Camera {
       const video = this.video.nativeElement;
       video.srcObject = stream;
       video.muted = true;
+      this.startPreviewLoop();
 
       this.cameraOpened.set(true);
       this.cameraStarting.set(false);
@@ -207,6 +214,109 @@ export class Camera {
     }
   }
 
+  private startPreviewLoop(): void {
+    if (this.previewLoopId !== null) {
+      cancelAnimationFrame(this.previewLoopId);
+    }
+
+    const renderFrame = () => {
+      if (!this.cameraOpened()) {
+        this.previewLoopId = null;
+        return;
+      }
+
+      this.refreshCameraPreview();
+      this.previewLoopId = requestAnimationFrame(renderFrame);
+    };
+
+    this.previewLoopId = requestAnimationFrame(renderFrame);
+  }
+
+  private refreshCameraPreview(): void {
+    if (!this.video || !this.previewCanvas) {
+      return;
+    }
+
+    const video = this.video.nativeElement;
+    const preview = this.previewCanvas.nativeElement;
+    if (!video || !preview) {
+      return;
+    }
+
+    if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+      return;
+    }
+
+    const crop = this.getSelectedCropRect(video);
+    preview.width = crop.canvasWidth;
+    preview.height = crop.canvasHeight;
+
+    const context = preview.getContext('2d');
+    if (!context) {
+      return;
+    }
+
+    context.clearRect(0, 0, preview.width, preview.height);
+    context.save();
+    context.translate(preview.width, 0);
+    context.scale(-1, 1);
+    context.drawImage(
+      video,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      preview.width,
+      preview.height
+    );
+    context.restore();
+  }
+
+  private getSelectedCropRect(video: HTMLVideoElement): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    canvasWidth: number;
+    canvasHeight: number;
+  } {
+    const selectedLayout = this.layouts.find(item => item.id === this.selectedLayout())
+      ?? this.layouts.find(item => item.photoCount === this.selectedStrip())
+      ?? this.layouts[0];
+    const slot = selectedLayout.slots[0];
+    const targetAspectRatio = slot.width / slot.height;
+    const sourceAspectRatio = video.videoWidth / video.videoHeight;
+    const cropScale = 1.6;
+    let sourceWidth = video.videoWidth;
+    let sourceHeight = video.videoHeight;
+
+    if (sourceAspectRatio > targetAspectRatio) {
+      sourceHeight = video.videoHeight;
+      sourceWidth = sourceHeight * targetAspectRatio;
+    } else {
+      sourceWidth = video.videoWidth;
+      sourceHeight = sourceWidth / targetAspectRatio;
+    }
+
+    sourceWidth /= cropScale;
+    sourceHeight /= cropScale;
+    const sourceX = (video.videoWidth - sourceWidth) / 2;
+    const sourceY = (video.videoHeight - sourceHeight) / 2;
+    const canvasWidth = 1600;
+    const canvasHeight = Math.round(canvasWidth / targetAspectRatio);
+
+    return {
+      x: sourceX,
+      y: sourceY,
+      width: sourceWidth,
+      height: sourceHeight,
+      canvasWidth,
+      canvasHeight
+    };
+  }
+
   private capturePhoto(): string | null {
 
     const video = this.video.nativeElement;
@@ -217,22 +327,9 @@ export class Camera {
       return null;
     }
 
-    const sourceAspectRatio = video.videoWidth / video.videoHeight;
-    let sourceWidth = video.videoWidth;
-    let sourceHeight = video.videoHeight;
-    let sourceX = 0;
-    let sourceY = 0;
-
-    if (sourceAspectRatio > this.captureAspectRatio) {
-      sourceWidth = video.videoHeight * this.captureAspectRatio;
-      sourceX = (video.videoWidth - sourceWidth) / 2;
-    } else {
-      sourceHeight = video.videoWidth / this.captureAspectRatio;
-      sourceY = (video.videoHeight - sourceHeight) / 2;
-    }
-
-    canvas.width = video.videoWidth;
-    canvas.height = Math.round(canvas.width / this.captureAspectRatio);
+    const crop = this.getSelectedCropRect(video);
+    canvas.width = crop.canvasWidth;
+    canvas.height = crop.canvasHeight;
 
     const context = canvas.getContext('2d');
 
@@ -245,10 +342,10 @@ export class Camera {
     context.scale(-1, 1);
     context.drawImage(
       video,
-      sourceX,
-      sourceY,
-      sourceWidth,
-      sourceHeight,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
       0,
       0,
       canvas.width,
@@ -341,15 +438,16 @@ export class Camera {
       const slot = layout.slots[index];
       const photoAspectRatio = photo.width / photo.height;
       const slotAspectRatio = slot.width / slot.height;
-      let drawWidth = slot.width;
-      let drawHeight = slot.height;
+      const coverScale = 2.2;
+      let drawWidth = slot.width * coverScale;
+      let drawHeight = slot.height * coverScale;
 
       if (photoAspectRatio > slotAspectRatio) {
-        drawHeight = slot.height;
-        drawWidth = slot.height * photoAspectRatio;
+        drawHeight = slot.height * coverScale;
+        drawWidth = drawHeight * photoAspectRatio;
       } else {
-        drawWidth = slot.width;
-        drawHeight = slot.width / photoAspectRatio;
+        drawWidth = slot.width * coverScale;
+        drawHeight = drawWidth / photoAspectRatio;
       }
 
       context.save();
@@ -380,6 +478,10 @@ export class Camera {
   }
 
   private stopCamera(): void {
+    if (this.previewLoopId !== null) {
+      cancelAnimationFrame(this.previewLoopId);
+      this.previewLoopId = null;
+    }
     this.mediaStream?.getTracks().forEach(track => track.stop());
     this.mediaStream = null;
   }

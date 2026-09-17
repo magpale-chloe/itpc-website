@@ -25,7 +25,14 @@
       #video
       autoplay
       playsinline
+      hidden
     ></video>
+
+    <canvas
+      #previewCanvas
+      class="camera-live-crop"
+      aria-label="Camera preview"
+    ></canvas>
 
     @if (!cameraOpened()) {
       <div class="camera-setup">
@@ -145,7 +152,12 @@
         <p>Pick a style for your {{ selectedStrip() }}-photo memory.</p>
       </div>
 
-      <div class="layout-options" role="list" aria-label="Photo strip layouts">
+      <div
+        class="layout-options"
+        [class.two-up]="selectedStrip() === 2"
+        role="list"
+        aria-label="Photo strip layouts"
+      >
         @for (layout of layoutsForSelectedStrip(); track layout.id) {
           <button
             class="layout-card"

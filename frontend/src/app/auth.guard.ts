@@ -1,7 +1,7 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 
-export const authGuard: CanActivateFn = () => {
+export const authGuard: CanActivateFn = (route) => {
   const router = inject(Router);
 
   if (typeof sessionStorage === 'undefined') {
@@ -13,7 +13,9 @@ export const authGuard: CanActivateFn = () => {
 
   try {
     const user = storedUser ? JSON.parse(storedUser) as { username?: string; role?: string } : null;
-    return token && user?.role === 'executive' && !!user.username
+    const allowedRoles = route.data['roles'] as string[] | undefined;
+    const roleIsAllowed = user?.role && (allowedRoles ?? ['executive', 'committee']).includes(user.role);
+    return token && !!roleIsAllowed && !!user.username
       ? true
       : router.parseUrl('/');
   } catch {
