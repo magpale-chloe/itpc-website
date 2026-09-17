@@ -418,53 +418,52 @@ export class Camera {
   }
 
   private async renderPhotoStrip(): Promise<string> {
-    const layout = this.layouts.find(item => item.id === this.selectedLayout());
-    if (!layout) {
-      throw new Error('Photo strip layout is unavailable');
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = layout.width;
-    canvas.height = layout.height;
-
-    const context = canvas.getContext('2d');
-    if (!context) {
-      throw new Error('Canvas is unavailable');
-    }
-
-    const template = await this.loadImage(layout.image);
-    context.drawImage(template, 0, 0, canvas.width, canvas.height);
-
-    const photos = await Promise.all(this.photoData().slice(0, layout.photoCount).map(photo => this.loadImage(photo)));
-
-    photos.forEach((photo, index) => {
-      const slot = layout.slots[index];
-      const photoAspectRatio = photo.width / photo.height;
-      const slotAspectRatio = slot.width / slot.height;
-      const coverScale = 1.12;
-      let drawWidth = slot.width * coverScale;
-      let drawHeight = slot.height * coverScale;
-
-      if (photoAspectRatio > slotAspectRatio) {
-        drawHeight = slot.height * coverScale;
-        drawWidth = drawHeight * photoAspectRatio;
-      } else {
-        drawWidth = slot.width * coverScale;
-        drawHeight = drawWidth / photoAspectRatio;
-      }
-
-      context.save();
-      context.beginPath();
-      context.rect(slot.x, slot.y, slot.width, slot.height);
-      context.clip();
-      context.translate(slot.x + slot.width / 2, slot.y + slot.height / 2);
-      context.rotate(slot.rotation * Math.PI / 180);
-      context.drawImage(photo, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
-      context.restore();
-    });
-
-    return canvas.toDataURL('image/png');
+  const layout = this.layouts.find(item => item.id === this.selectedLayout());
+  if (!layout) {
+    throw new Error('Photo strip layout is unavailable');
   }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = layout.width;
+  canvas.height = layout.height;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Canvas is unavailable');
+  }
+
+  const template = await this.loadImage(layout.image);
+  context.drawImage(template, 0, 0, canvas.width, canvas.height);
+
+  const photos = await Promise.all(this.photoData().slice(0, layout.photoCount).map(photo => this.loadImage(photo)));
+
+  photos.forEach((photo, index) => {
+    const slot = layout.slots[index];
+    const photoAspectRatio = photo.width / photo.height;
+    const slotAspectRatio = slot.width / slot.height;
+    let drawWidth = slot.width;
+    let drawHeight = slot.height;
+
+    if (photoAspectRatio > slotAspectRatio) {
+      drawHeight = slot.height;
+      drawWidth = drawHeight * photoAspectRatio;
+    } else {
+      drawWidth = slot.width;
+      drawHeight = drawWidth / photoAspectRatio;
+    }
+
+    context.save();
+    context.translate(slot.x + slot.width / 2, slot.y + slot.height / 2);
+    context.rotate(slot.rotation * Math.PI / 180);
+    context.beginPath();
+    context.rect(-slot.width / 2, -slot.height / 2, slot.width, slot.height);
+    context.clip();
+    context.drawImage(photo, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+    context.restore();
+  });
+
+  return canvas.toDataURL('image/png');
+}
 
   private getPhotoApiUrl(): string {
     const baseUrl = PHOTO_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
