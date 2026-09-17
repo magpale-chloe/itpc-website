@@ -441,7 +441,7 @@ export class Camera {
       const slot = layout.slots[index];
       const photoAspectRatio = photo.width / photo.height;
       const slotAspectRatio = slot.width / slot.height;
-      const coverScale = 2.2;
+      const coverScale = 1.12;
       let drawWidth = slot.width * coverScale;
       let drawHeight = slot.height * coverScale;
 
@@ -454,6 +454,9 @@ export class Camera {
       }
 
       context.save();
+      context.beginPath();
+      context.rect(slot.x, slot.y, slot.width, slot.height);
+      context.clip();
       context.translate(slot.x + slot.width / 2, slot.y + slot.height / 2);
       context.rotate(slot.rotation * Math.PI / 180);
       context.drawImage(photo, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
