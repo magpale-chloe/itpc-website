@@ -433,8 +433,6 @@ export class Camera {
   }
 
   const template = await this.loadImage(layout.image);
-  context.drawImage(template, 0, 0, canvas.width, canvas.height);
-
   const photos = await Promise.all(this.photoData().slice(0, layout.photoCount).map(photo => this.loadImage(photo)));
 
   photos.forEach((photo, index) => {
@@ -461,6 +459,8 @@ export class Camera {
     context.drawImage(photo, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
     context.restore();
   });
+
+  context.drawImage(template, 0, 0, canvas.width, canvas.height);
 
   return canvas.toDataURL('image/png');
 }
