@@ -23,19 +23,17 @@ describe('Camera', () => {
     const waitSpy = spyOn<any, any>(component as any, 'wait').and.resolveTo();
     const captureSpy = spyOn<any, any>(component as any, 'capturePhoto').and.returnValue('captured');
 
-    component.capturing.set(false);
     component.cameraOpened.set(true);
     component.selectedStrip.set(2);
     component.countdown.set(0);
 
     spyOn<any, any>(component as any, 'waitForVideoReady').and.resolveTo();
-    spyOn(component, 'capturePhoto' as any).and.returnValue('captured');
 
     await component.takePhoto();
 
-    expect(waitSpy.calls.allArgs()).toEqual([[1000], [1000], [1000], [1000], [1000], [1000], [1000], [1000], [1000], [1000], [1000]]);
+    expect(waitSpy.calls.allArgs().filter(([ms]) => ms === 1000)).toHaveSize(20);
     expect(component.countdown()).toBe(0);
-    expect(captureSpy).toHaveBeenCalled();
+    expect(captureSpy).toHaveBeenCalledTimes(2);
   });
 
   it('moves to layout selection after capturing the selected number of photos', () => {

@@ -57,6 +57,8 @@ export class Camera {
   @ViewChild('previewCanvas')
   previewCanvas!: ElementRef<HTMLCanvasElement>;
 
+  private readonly countdownSeconds = 10;
+
   cameraOpened = signal(false);
   cameraStarting = signal(false);
   cameraError = signal('');
@@ -183,7 +185,7 @@ export class Camera {
       console.log(`Capturing ${photoCount} photos`);
 
       for (let photoIndex = 0; photoIndex < photoCount; photoIndex++) {
-        for (let remaining = photoCount; remaining > 0; remaining--) {
+        for (let remaining = this.countdownSeconds; remaining > 0; remaining--) {
           this.countdown.set(remaining);
           this.cdr.detectChanges();
           await this.wait(1000);
