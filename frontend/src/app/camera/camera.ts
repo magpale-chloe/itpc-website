@@ -33,7 +33,7 @@ export class Camera {
   readonly layouts: StripLayout[] = [
     ...this.createLayouts(2, 1240, 620, [
       { x: 137, y: 52, width: 505, height: 332, rotation: 7 },
-      { x: 629, y: 228, width: 505, height: 332, rotation: -4 }
+      { x: 631, y: 228, width: 505, height: 332, rotation: -4 }
     ]),
     ...this.createLayouts(3, 600, 1800, [
       { x: 32, y: 357, width: 535, height: 312, rotation: 0 },
@@ -58,6 +58,7 @@ export class Camera {
   previewCanvas!: ElementRef<HTMLCanvasElement>;
 
   private readonly countdownSeconds = 10;
+  private readonly downloadCounterKey = 'itpc-ga-2026-download-counter';
 
   cameraOpened = signal(false);
   cameraStarting = signal(false);
@@ -290,7 +291,6 @@ export class Camera {
     const slot = selectedLayout.slots[0];
     const targetAspectRatio = slot.width / slot.height;
     const sourceAspectRatio = video.videoWidth / video.videoHeight;
-    const cropScale = 1.6;
     let sourceWidth = video.videoWidth;
     let sourceHeight = video.videoHeight;
 
@@ -302,8 +302,6 @@ export class Camera {
       sourceHeight = sourceWidth / targetAspectRatio;
     }
 
-    sourceWidth /= cropScale;
-    sourceHeight /= cropScale;
     const sourceX = (video.videoWidth - sourceWidth) / 2;
     const sourceY = (video.videoHeight - sourceHeight) / 2;
     const canvasWidth = 1600;
@@ -412,11 +410,65 @@ export class Camera {
 
   async downloadPhotoStrip(): Promise<void> {
     const image = await this.renderPhotoStrip();
+    const downloadNumber = this.getNextDownloadNumber();
+    const fileName = `ITPC-GA-2026-${downloadNumber}.png`;
 
-    const link = document.createElement('a');
-    link.download = `itpc-photobooth-${this.selectedLayout()}.png`;
-    link.href = image;
-    link.click();
+    const saveAsFile = async (): Promise<void> => {
+      if ('showSaveFilePicker' in window && typeof window.showSaveFilePicker === 'function') {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{
+            description: 'PNG image',
+            accept: { 'image/png': ['.png'] }
+          }]
+        });
+
+        const writable = await handle.createWritable();
+        await writable.write(this.dataUrlToBlob(image));
+        await writable.close();
+        return;
+      }
+
+      const link = document.createElement('a');
+      link.href = image;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    try {
+      await saveAsFile();
+    } catch (error) {
+      console.warn('Native file picker was unavailable or cancelled:', error);
+      const link = document.createElement('a');
+      link.href = image;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  }
+
+  private dataUrlToBlob(dataUrl: string): Blob {
+    const [header, base64Data] = dataUrl.split(',');
+    const mimeMatch = header.match(/data:(.*?);base64/);
+    const mimeType = mimeMatch?.[1] ?? 'image/png';
+    const binary = atob(base64Data ?? '');
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index++) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+
+    return new Blob([bytes], { type: mimeType });
+  }
+
+  private getNextDownloadNumber(): number {
+    const current = Number(window.localStorage.getItem(this.downloadCounterKey) ?? '0');
+    const next = Number.isFinite(current) ? current + 1 : 1;
+    window.localStorage.setItem(this.downloadCounterKey, String(next));
+    return next;
   }
 
   private async renderPhotoStrip(): Promise<string> {
