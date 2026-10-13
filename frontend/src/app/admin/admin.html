@@ -1,10 +1,12 @@
 <main class="admin-shell">
   <header class="admin-topbar">
-    <a class="admin-brand" href="/" aria-label="Return to ITPC home">
-      <img src="assets/ITPC-LOGO-optimized.png" alt="ITPC logo" width="74" height="42">
-    </a>
+    <div class="admin-navigation">
+      <a class="admin-brand" href="/" aria-label="Return to ITPC home">
+        <img src="assets/ITPC-LOGO-optimized.png" alt="ITPC logo" width="74" height="42">
+      </a>
+      <button class="admin-back" type="button" (click)="goHome()"><span aria-hidden="true">←</span> Back</button>
+    </div>
     <div class="admin-account">
-      <button type="button" (click)="goHome()">Back</button>
       <span>{{ roleLabel }} / {{ username }}</span>
       <button type="button" (click)="logout()">Log out</button>
     </div>
@@ -25,11 +27,12 @@
       <button type="button" (click)="openPhotobooth()">Open photobooth <span aria-hidden="true">↗</span></button>
     </article>
     }
-    <article class="admin-card admin-card-coming-soon">
-      <span class="admin-card-number">02 / EXECUTIVE TOOL</span>
-      <h2>Log duty hours.</h2>
-      <p>Track executive board service and keep your organization work organized.</p>
-      <span class="coming-soon-label">Coming soon</span>
+    <article class="admin-card">
+      <span class="admin-card-number">0{{ canUsePhotobooth ? 2 : 1 }} / RFID ATTENDANCE</span>
+      <h2>Keep the hours clear.</h2>
+      <p>Scan RFID cards to clock members in and out, update card assignments, and review the full duty log below.</p>
     </article>
   </section>
+
+  <app-duty-log-table></app-duty-log-table>
 </main>

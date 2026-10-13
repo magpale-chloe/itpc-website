@@ -20,18 +20,18 @@ describe('Camera', () => {
   });
 
   it('uses a 10 second countdown before each capture', async () => {
-    const waitSpy = spyOn<any, any>(component as any, 'wait').and.resolveTo();
-    const captureSpy = spyOn<any, any>(component as any, 'capturePhoto').and.returnValue('captured');
+    const waitSpy = vi.spyOn(component as any, 'wait').mockResolvedValue(undefined);
+    const captureSpy = vi.spyOn(component as any, 'capturePhoto').mockReturnValue('captured');
 
     component.cameraOpened.set(true);
     component.selectedStrip.set(2);
     component.countdown.set(0);
 
-    spyOn<any, any>(component as any, 'waitForVideoReady').and.resolveTo();
+    vi.spyOn(component as any, 'waitForVideoReady').mockResolvedValue(undefined);
 
     await component.takePhoto();
 
-    expect(waitSpy.calls.allArgs().filter(([ms]) => ms === 1000)).toHaveSize(20);
+    expect(waitSpy.mock.calls.filter(([ms]) => ms === 1000)).toHaveLength(20);
     expect(component.countdown()).toBe(0);
     expect(captureSpy).toHaveBeenCalledTimes(2);
   });
@@ -58,46 +58,52 @@ describe('Camera', () => {
     const drawOrder: string[] = [];
 
     const context = {
-      save: jasmine.createSpy('save'),
-      restore: jasmine.createSpy('restore'),
-      translate: jasmine.createSpy('translate'),
-      rotate: jasmine.createSpy('rotate'),
-      drawImage: jasmine.createSpy('drawImage').and.callFake((image: HTMLImageElement) => {
+      save: vi.fn(),
+      restore: vi.fn(),
+      translate: vi.fn(),
+      rotate: vi.fn(),
+      beginPath: vi.fn(),
+      rect: vi.fn(),
+      clip: vi.fn(),
+      drawImage: vi.fn((image: HTMLImageElement) => {
         drawOrder.push(image.src);
       }),
     };
 
-    spyOn(document, 'createElement').and.callFake((tagName: string) => {
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) => {
       if (tagName === 'canvas') {
         return {
           width: 0,
           height: 0,
           getContext: () => context,
-          toDataURL: () => 'data:image/png;base64,strip'
+          toDataURL: () => 'data:image/png;base64,strip',
         } as unknown as HTMLCanvasElement;
       }
 
-      return document.createElement('div');
-    });
+      return originalCreateElement(tagName);
+    }) as typeof document.createElement);
 
-    spyOn<any, any>(component as any, 'loadImage').and.callFake((source: string) => {
-      if (source === 'assets/fv 3-itpcstrip.png') {
+    vi.spyOn(component as any, 'loadImage').mockImplementation((source: any) => {
+      const sourceValue = String(source);
+
+      if (sourceValue === 'assets/fv 3-itpcstrip.png') {
         return Promise.resolve(templateImage);
       }
 
-      if (source === 'one') {
+      if (sourceValue === 'one') {
         return Promise.resolve(photoOne);
       }
 
-      if (source === 'two') {
+      if (sourceValue === 'two') {
         return Promise.resolve(photoTwo);
       }
 
-      if (source === 'three') {
+      if (sourceValue === 'three') {
         return Promise.resolve(photoThree);
       }
 
-      return Promise.resolve({ width: 200, height: 200, src: source } as HTMLImageElement);
+      return Promise.resolve({ width: 200, height: 200, src: sourceValue } as HTMLImageElement);
     });
 
     component.photoData.set(['one', 'two', 'three']);

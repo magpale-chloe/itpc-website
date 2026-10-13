@@ -14,7 +14,7 @@ export const authGuard: CanActivateFn = (route) => {
   try {
     const user = storedUser ? JSON.parse(storedUser) as { username?: string; role?: string } : null;
     const allowedRoles = route.data['roles'] as string[] | undefined;
-    const roleIsAllowed = user?.role && (allowedRoles ?? ['executive', 'committee']).includes(user.role);
+    const roleIsAllowed = user?.role && (allowedRoles ?? ['executive']).includes(user.role);
     return token && !!roleIsAllowed && !!user.username
       ? true
       : router.parseUrl('/');

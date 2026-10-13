@@ -14,11 +14,9 @@ interface Highlight {
   tag: string;
 }
 
-type LoginRole = 'executive' | 'committee';
-
 interface AuthUser {
   username: string;
-  role: LoginRole;
+  role: 'executive';
 }
 
 @Component({
@@ -32,7 +30,6 @@ export class App {
   readonly authApiUrl = `${PHOTO_API_BASE_URL}/api/auth`;
 
   loginOpen = false;
-  loginRole: LoginRole = 'executive';
   username = '';
   password = '';
   loginError = '';
@@ -60,8 +57,8 @@ export class App {
     return this.photoboothPage();
   }
 
-  roleLabel(role: LoginRole): string {
-    return role === 'executive' ? 'Executive Board' : 'Committee / JO';
+  openAdmin(): void {
+    void this.router.navigateByUrl('/admin');
   }
 
   readonly highlights: Highlight[] = [
@@ -85,8 +82,7 @@ export class App {
     }
   ];
 
-  openLogin(role: LoginRole): void {
-    this.loginRole = role;
+  openLogin(): void {
     this.loginOpen = true;
     this.loginError = '';
   }
@@ -114,7 +110,7 @@ export class App {
         body: JSON.stringify({
           username: this.username.trim(),
           password: this.password,
-          role: this.loginRole
+          role: 'executive'
         })
       });
 
@@ -166,7 +162,13 @@ export class App {
     }
 
     try {
-      return JSON.parse(storedUser) as AuthUser;
+      const user = JSON.parse(storedUser) as { username?: unknown; role?: unknown };
+      if (typeof user.username !== 'string' || user.role !== 'executive') {
+        sessionStorage.removeItem('itpc-session-token');
+        sessionStorage.removeItem('itpc-session-user');
+        return null;
+      }
+      return { username: user.username, role: 'executive' };
     } catch {
       sessionStorage.removeItem('itpc-session-token');
       sessionStorage.removeItem('itpc-session-user');

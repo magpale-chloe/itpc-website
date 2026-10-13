@@ -1,15 +1,17 @@
 import { Component } from '@angular/core';
 import { Router } from '@angular/router';
+import { DutyLogTable } from './duty-log-table';
 
 @Component({
   selector: 'app-admin',
   standalone: true,
+  imports: [DutyLogTable],
   templateUrl: './admin.html',
   styleUrl: './admin.scss'
 })
 export class Admin {
   readonly username: string;
-  readonly role: 'executive' | 'committee';
+  readonly role: 'executive';
   readonly roleLabel: string;
   readonly canUsePhotobooth: boolean;
 
@@ -26,8 +28,8 @@ export class Admin {
     const token = sessionStorage.getItem('itpc-session-token');
 
     try {
-      const user = storedUser ? JSON.parse(storedUser) as { username?: string; role?: 'executive' | 'committee' } : null;
-      if (!token || !user?.username || (user.role !== 'executive' && user.role !== 'committee')) {
+      const user = storedUser ? JSON.parse(storedUser) as { username?: string; role?: string } : null;
+      if (!token || !user?.username || user.role !== 'executive') {
         void this.router.navigateByUrl('/');
         this.username = '';
         this.role = 'executive';
@@ -36,9 +38,9 @@ export class Admin {
         return;
       }
       this.username = user.username;
-      this.role = user.role;
-      this.roleLabel = user.role === 'executive' ? 'Executive Board' : 'Committee / JO';
-      this.canUsePhotobooth = user.role === 'executive';
+      this.role = 'executive';
+      this.roleLabel = 'Executive Board';
+      this.canUsePhotobooth = true;
     } catch {
       void this.router.navigateByUrl('/');
       this.username = '';

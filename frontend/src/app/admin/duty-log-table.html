@@ -1,0 +1,298 @@
+<section class="attendance-panel" aria-label="RFID attendance and duty log">
+  <section class="scan-panel" aria-labelledby="scan-title">
+    <div class="section-heading">
+      <p class="eyebrow">RFID attendance</p>
+      <h2 id="scan-title">{{ nameOnlyMode() ? 'Enter a name to clock in.' : 'Scan a card to log duty.' }}</h2>
+      <p>{{ nameOnlyMode()
+        ? 'Use this for a non-member without an RFID card.'
+        : 'Tap the card or scan it with a keyboard-connected RFID reader. The scan is recorded as clock-in or clock-out.' }}</p>
+    </div>
+
+    <form class="scan-form" (ngSubmit)="scanCard()">
+      @if (canManageRoster()) {
+        <button
+          type="button"
+          class="mode-toggle"
+          [attr.aria-pressed]="nameOnlyMode()"
+          [disabled]="scanPending()"
+          (click)="toggleNameOnlyMode()">
+          {{ nameOnlyMode() ? 'Switch to RFID card' : 'Record a name only' }}
+        </button>
+      }
+      <label for="officer-id">Clocking officer</label>
+      <select
+        id="officer-id"
+        name="officerId"
+        required
+        [(ngModel)]="selectedOfficerId"
+        [disabled]="studentLoading() || !students().length || scanPending()">
+        <option value="" disabled>Select the officer recording this entry</option>
+        @for (officer of students(); track officer.id) {
+          <option [value]="officer.id">{{ officer.name }}{{ officer.position ? ' — ' + officer.position : '' }}</option>
+        }
+      </select>
+      <label for="rfid-identifier">{{ nameOnlyMode() ? 'Non-member name' : 'RFID card ID' }}</label>
+      <div class="scan-controls">
+        <input
+          id="rfid-identifier"
+          name="rfidIdentifier"
+          type="text"
+          [attr.autocomplete]="nameOnlyMode() ? 'name' : 'off'"
+          [placeholder]="nameOnlyMode() ? 'Enter non-member name' : 'Scan or enter the card ID'"
+          [(ngModel)]="scanIdentifier"
+          [disabled]="scanPending()">
+        <button type="submit" [disabled]="scanPending() || !scanIdentifier.trim() || !selectedOfficerId">
+          {{ scanPending() ? 'Recording...' : (nameOnlyMode() ? 'Clock in by name' : 'Record scan') }}
+        </button>
+      </div>
+    </form>
+
+    @if (scanMessage()) {
+      <p class="success-banner" role="status">{{ scanMessage() }}</p>
+    }
+    @if (scanError()) {
+      <p class="error-banner" role="alert">{{ scanError() }}</p>
+    }
+  </section>
+
+  <section class="roster-panel" aria-labelledby="roster-title">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">Card assignments</p>
+        <h2 id="roster-title">RFID roster</h2>
+      </div>
+      <div class="roster-header-actions">
+        <button
+          type="button"
+          class="refresh-btn"
+          [attr.aria-expanded]="rosterOpen()"
+          aria-controls="roster-content"
+          (click)="toggleRoster()">
+          {{ rosterOpen() ? 'Close roster' : 'Open roster' }}
+        </button>
+        @if (rosterOpen()) {
+          @if (canManageRoster()) {
+            <button type="button" class="edit-btn" (click)="toggleAddStudent()">
+              {{ addingStudent() ? 'Cancel add' : 'Add member/card' }}
+            </button>
+          }
+          <button type="button" class="refresh-btn" (click)="loadStudents()">Refresh roster</button>
+        }
+      </div>
+    </div>
+    @if (rosterOpen()) {
+    <div id="roster-content">
+    <p class="section-note">Register a new member and card, or update an existing name, card ID, and position. Card IDs must be unique.</p>
+
+    @if (studentError()) {
+      <p class="error-banner" role="alert">{{ studentError() }}</p>
+    }
+    @if (addingStudent() && canManageRoster()) {
+      <form class="add-member-form" (ngSubmit)="addStudent()">
+        <div class="roster-fields">
+          <label>
+            Name
+            <input name="newName" type="text" required [(ngModel)]="newStudent.name">
+          </label>
+          <label>
+            RFID card ID
+            <input name="newCardId" type="text" required [(ngModel)]="newStudent.rfid_uid">
+          </label>
+          <label>
+            Position
+            <input name="newPosition" type="text" [(ngModel)]="newStudent.position">
+          </label>
+        </div>
+        <div class="roster-actions">
+          <button type="submit" class="save-btn" [disabled]="savingNewStudent() || !newStudent.name.trim() || !newStudent.rfid_uid.trim()">
+            {{ savingNewStudent() ? 'Registering...' : 'Register card' }}
+          </button>
+        </div>
+      </form>
+    }
+    @if (studentLoading()) {
+      <p class="loading-state">Loading roster...</p>
+    } @else {
+      <div class="roster-list">
+        @for (student of students(); track student.id) {
+          <article class="roster-entry">
+            @if (editingStudentId() === student.id && draftStudent; as draft) {
+              <div class="roster-fields">
+                <label>
+                  Name
+                  <input name="editName" type="text" required [(ngModel)]="draft.name">
+                </label>
+                <label>
+                  RFID card ID
+                  <input name="editCardId" type="text" required [(ngModel)]="draft.rfid_uid">
+                </label>
+                <label>
+                  Position
+                  <input name="editPosition" type="text" [(ngModel)]="draft.position">
+                </label>
+              </div>
+              <div class="roster-actions">
+                <button type="button" class="save-btn" [disabled]="savingStudent()" (click)="saveStudent()">
+                  {{ savingStudent() ? 'Saving...' : 'Save' }}
+                </button>
+                <button type="button" class="cancel-btn" [disabled]="savingStudent()" (click)="cancelEdit()">Cancel</button>
+              </div>
+            } @else {
+              <div class="roster-person">
+                <strong>{{ student.name }}</strong>
+                <span>{{ student.position || 'Position not set' }}</span>
+                <small>Card ID: {{ student.rfid_uid }}</small>
+              </div>
+              @if (canManageRoster()) {
+                <div class="roster-actions">
+                  <button type="button" class="edit-btn" (click)="beginEdit(student)">Edit member</button>
+                  <button
+                    type="button"
+                    class="delete-btn"
+                    [disabled]="deletingStudentId() === student.id"
+                    (click)="deleteStudent(student)">
+                    {{ deletingStudentId() === student.id ? 'Deleting...' : 'Delete' }}
+                  </button>
+                </div>
+              }
+            }
+          </article>
+        } @empty {
+          <p class="loading-state">No RFID cards are registered yet.</p>
+        }
+      </div>
+    }
+    @if (!canManageRoster()) {
+      <p class="section-note">Only Executive Board accounts can edit the RFID roster.</p>
+    }
+    </div>
+    }
+  </section>
+
+  <section class="duty-log-table-panel" aria-label="Duty log table">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">Duty log</p>
+        <h2>Recent attendance scans</h2>
+      </div>
+      <div class="roster-header-actions">
+        @if (canManageRoster()) {
+          <button type="button" class="edit-btn" (click)="toggleManualLogForm()">
+            {{ manualLogFormOpen() ? 'Cancel non-member' : 'Add non-member' }}
+          </button>
+        }
+        <button type="button" class="refresh-btn" (click)="loadLogs()">Refresh log</button>
+      </div>
+    </div>
+
+    @if (canManageRoster() && manualLogFormOpen()) {
+      <form class="manual-log-form" (ngSubmit)="addManualLog()">
+        <label for="manual-log-name">Non-member name</label>
+        <div class="manual-log-controls">
+          <input
+            id="manual-log-name"
+            name="manualLogName"
+            type="text"
+            autocomplete="name"
+            placeholder="Enter name only"
+            required
+            [(ngModel)]="manualLogName"
+            [disabled]="savingManualLog()">
+          <button
+            type="submit"
+            class="save-btn"
+            [disabled]="savingManualLog() || !manualLogName.trim()">
+            {{ savingManualLog() ? 'Adding...' : 'Add and clock in' }}
+          </button>
+        </div>
+      </form>
+    }
+    @if (manualLogMessage()) {
+      <p class="success-message" role="status">{{ manualLogMessage() }}</p>
+    }
+    @if (manualLogError()) {
+      <p class="error-banner" role="alert">{{ manualLogError() }}</p>
+    }
+
+    @if (errorMessage()) {
+      <p class="error-banner" role="alert">{{ errorMessage() }}</p>
+    }
+
+    @if (loading()) {
+      <p class="loading-state">Loading duty logs...</p>
+    } @else {
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Member / card</th>
+              <th>Position</th>
+              <th>Status</th>
+              <th>Clock-in</th>
+              <th>Clock-out</th>
+              <th>Clock-in officer</th>
+              <th>Clock-out officer</th>
+              <th>Time span (hours)</th>
+              @if (canManageRoster()) {
+                <th>Actions</th>
+              }
+            </tr>
+          </thead>
+          <tbody>
+            @for (log of logs(); track log.id ?? log.timestamp) {
+              <tr>
+                <td>
+                  <div class="student-cell">
+                    <strong>{{ log.studentName }}</strong>
+                    <small>{{ log.isNonMember ? 'Non-member' : (log.rfidUid || log.studentId || '—') }}</small>
+                  </div>
+                </td>
+                <td>{{ log.position || '—' }}</td>
+                <td>
+                  <span
+                    class="status-pill"
+                    [class.active]="log.status === 'ACTIVE'"
+                    [class.completed]="log.status !== 'ACTIVE'"
+                  >
+                    {{ getDutyStatusLabel(log) }}
+                  </span>
+                </td>
+                <td>{{ formatTimestamp(log.clockInTime ?? log.timestamp) }}</td>
+                <td>{{ formatTimestamp(log.clockOutTime) }}</td>
+                <td>{{ formatOfficer(log) }}</td>
+                <td>{{ formatClockOutOfficer(log) }}</td>
+                <td>{{ log.totalDutyHours ?? '—' }}</td>
+                @if (canManageRoster()) {
+                  <td>
+                    <div class="log-actions">
+                      @if (log.status === 'ACTIVE') {
+                        <button
+                          type="button"
+                          class="edit-btn"
+                          [disabled]="clockingOutLogId() === log.id || !log.id"
+                          (click)="clockOutLog(log)">
+                          {{ clockingOutLogId() === log.id ? 'Clocking out...' : 'Clock out' }}
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="delete-btn"
+                        [disabled]="deletingLogId() === log.id || !log.id"
+                        (click)="deleteLog(log)">
+                        {{ deletingLogId() === log.id ? 'Deleting...' : 'Delete log' }}
+                      </button>
+                    </div>
+                  </td>
+                }
+              </tr>
+            } @empty {
+              <tr>
+                <td [attr.colspan]="canManageRoster() ? 9 : 8" class="empty-state">No attendance scans have been recorded yet.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+</section>

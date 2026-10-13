@@ -6,17 +6,20 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env --import tsx server.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tsx --test duty-log.test.ts duty-log-store.test.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.4.1",
+    "@types/pg": "^8.15.5",
+    "pg-mem": "^3.0.5",
     "tsx": "^4.20.6",
     "ts-node-dev": "^2.0.0",
     "typescript": "^7.0.2"

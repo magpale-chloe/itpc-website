@@ -10,7 +10,7 @@ export const routes: Routes = [
 	{
 		path: 'admin',
 		canActivate: [authGuard],
-		data: { roles: ['executive', 'committee'] },
+		data: { roles: ['executive'] },
 		loadComponent: () => import('./admin/admin').then(({ Admin }) => Admin)
 	},
 	{

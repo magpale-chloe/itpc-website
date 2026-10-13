@@ -11,10 +11,10 @@
 		<div class="nav-links">
 			<a href="#story">About us</a>
 			<a href="#connect">Connect</a>
-			@if (currentUser; as user) {
-				<button class="login-nav-button" type="button" (click)="logout()">Log out / {{ roleLabel(user.role) }}</button>
+			@if (currentUser) {
+				<button class="admin-nav-button" type="button" (click)="openAdmin()">Admin</button>
 			} @else {
-				<button class="login-nav-button" type="button" (click)="openLogin('executive')">login</button>
+				<button class="login-nav-button" type="button" (click)="openLogin()">login</button>
 			}
 		</div>
 	</nav>
@@ -85,11 +85,7 @@
 			<button class="login-close" type="button" aria-label="Close login" (click)="closeLogin()">×</button>
 			<p class="kicker">ITPC ACCESS</p>
 			<h2 id="login-title">Welcome<br><em>back.</em></h2>
-			<div class="role-switcher" role="tablist" aria-label="Choose account type">
-				<button type="button" role="tab" [class.active]="loginRole === 'executive'" [attr.aria-selected]="loginRole === 'executive'" (click)="openLogin('executive')">Executive Board</button>
-				<button type="button" role="tab" [class.active]="loginRole === 'committee'" [attr.aria-selected]="loginRole === 'committee'" (click)="openLogin('committee')">Committee / JO</button>
-			</div>
-			<p class="login-role">{{ roleLabel(loginRole) }} access</p>
+			<p class="login-role">Executive Board access</p>
 			<form (submit)="$event.preventDefault(); login()">
 				<label for="username">Username</label>
 				<input id="username" name="username" type="text" autocomplete="username" [(ngModel)]="username">
@@ -98,7 +94,7 @@
 				<p class="login-error" role="alert">{{ loginError }}</p>
 				<button class="login-submit" type="submit" [disabled]="loginPending">{{ loginPending ? 'Logging in...' : 'Log in' }} <span aria-hidden="true">↗</span></button>
 			</form>
-			<p class="login-note">Committee / JO accounts can use the workspace but do not have photobooth access.</p>
+			<p class="login-note">Sign in with your Executive Board account to access the workspace and photobooth.</p>
 		</section>
 	</div>
 }
