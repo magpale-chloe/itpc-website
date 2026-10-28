@@ -1,5 +1,7 @@
 @if (isAdminPage()) {
 	<app-admin></app-admin>
+} @else if (isDutyHoursPage()) {
+	<app-duty-hours></app-duty-hours>
 } @else if (isPhotoboothPage()) {
 	<app-camera></app-camera>
 } @else {

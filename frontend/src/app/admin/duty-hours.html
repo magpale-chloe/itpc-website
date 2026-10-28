@@ -93,16 +93,16 @@
               }
             </span>
             <div class="member-info">
+              <span class="type-badge" [attr.data-type]="week.student.member_type">{{ memberTypeLabel(week.student.member_type) }}</span>
               <div class="member-name-row">
                 <strong>{{ week.student.name }}</strong>
                 @if (week.onDuty) {
                   <span class="on-duty">On duty</span>
                 }
               </div>
-              <span class="member-meta">
-                <span class="type-badge" [attr.data-type]="week.student.member_type">{{ memberTypeLabel(week.student.member_type) }}</span>
-                {{ week.student.position }}
-              </span>
+              @if (week.student.position) {
+                <span class="member-meta">{{ week.student.position }}</span>
+              }
               <div class="member-hours">
                 <strong>{{ week.hours }}</strong>
                 <span>{{ week.required ? '/ ' + week.required + ' hours' : 'hours' }} · {{ week.sessions }} {{ week.sessions === 1 ? 'session' : 'sessions' }}</span>

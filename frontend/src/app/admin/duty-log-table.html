@@ -210,11 +210,9 @@
                   }
                 </span>
                 <div class="roster-person">
+                  <span class="type-badge" [attr.data-type]="student.member_type">{{ memberTypeLabel(student.member_type) }}</span>
                   <strong>{{ student.name }}</strong>
-                  <span>
-                    <span class="type-badge" [attr.data-type]="student.member_type">{{ memberTypeLabel(student.member_type) }}</span>
-                    {{ student.position || 'Position not set' }}
-                  </span>
+                  <span>{{ student.position || 'Position not set' }}</span>
                   <small>Card ID: {{ student.rfid_uid }}</small>
                 </div>
               </div>

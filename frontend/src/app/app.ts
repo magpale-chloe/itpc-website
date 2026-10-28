@@ -5,6 +5,7 @@ import { filter } from 'rxjs';
 import { signal } from '@angular/core';
 import { Admin } from './admin/admin';
 import { Camera } from './camera/camera';
+import { DutyHours } from './admin/duty-hours';
 import { PHOTO_API_BASE_URL } from './api.config';
 
 interface Highlight {
@@ -22,7 +23,7 @@ interface AuthUser {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [FormsModule, Admin, Camera],
+  imports: [FormsModule, Admin, Camera, DutyHours],
   templateUrl: './app.html',
   styleUrl: './app.scss'
 })
@@ -37,20 +38,27 @@ export class App {
   currentUser: AuthUser | null = this.restoreSession();
   readonly adminPage = signal(false);
   readonly photoboothPage = signal(false);
+  readonly dutyHoursPage = signal(false);
 
   constructor(private readonly router: Router) {
     this.adminPage.set(this.router.url === '/admin');
     this.photoboothPage.set(this.router.url === '/photobooth');
+    this.dutyHoursPage.set(this.router.url === '/admin/duty-hours');
     this.router.events
       .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
       .subscribe((event) => {
         this.adminPage.set(event.urlAfterRedirects === '/admin');
         this.photoboothPage.set(event.urlAfterRedirects === '/photobooth');
+        this.dutyHoursPage.set(event.urlAfterRedirects === '/admin/duty-hours');
       });
   }
 
   isAdminPage(): boolean {
     return this.adminPage();
+  }
+
+  isDutyHoursPage(): boolean {
+    return this.dutyHoursPage();
   }
 
   isPhotoboothPage(): boolean {
