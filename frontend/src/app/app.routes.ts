@@ -14,6 +14,12 @@ export const routes: Routes = [
 		loadComponent: () => import('./admin/admin').then(({ Admin }) => Admin)
 	},
 	{
+		path: 'admin/duty-hours',
+		canActivate: [authGuard],
+		data: { roles: ['executive'] },
+		loadComponent: () => import('./admin/duty-hours').then(({ DutyHours }) => DutyHours)
+	},
+	{
 		path: 'photobooth',
 		canActivate: [authGuard],
 		data: { roles: ['executive'] },

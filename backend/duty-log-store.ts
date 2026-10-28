@@ -2,13 +2,22 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 
 export type DutyLogStatus = 'ACTIVE' | 'COMPLETED';
+export type MemberType = 'OFFICER' | 'JUNIOR_OFFICER' | 'COMMITTEE';
+
+export const MEMBER_TYPES: readonly MemberType[] = ['OFFICER', 'JUNIOR_OFFICER', 'COMMITTEE'];
 
 export interface Student {
   id: string;
   name: string;
   rfid_uid: string;
   position: string;
+  member_type: MemberType;
+  photo_url: string;
 }
+
+// member_type and photo_url are optional on input: omitted values default on create and are kept on update.
+export type StudentInput = Omit<Student, 'id' | 'member_type' | 'photo_url'> &
+  Partial<Pick<Student, 'member_type' | 'photo_url'>>;
 
 export interface DutyLog {
   id: string;
@@ -50,14 +59,15 @@ export interface DutyLogStore {
   initialize(): Promise<void>;
   close(): Promise<void>;
   listStudents(): Promise<Student[]>;
-  createStudent(input: Omit<Student, 'id'>): Promise<Student>;
-  updateStudent(id: string, input: Omit<Student, 'id'>): Promise<Student>;
+  createStudent(input: StudentInput): Promise<Student>;
+  updateStudent(id: string, input: StudentInput): Promise<Student>;
   deleteStudent(id: string): Promise<void>;
   recordScan(identifier: string, officerId?: string, fallbackOfficer?: OfficerIdentity | null): Promise<DutyScanResult>;
   createManualLog(name: string, officerId: string): Promise<DutyScanResult>;
   clockOutLog(id: string): Promise<DutyScanResult>;
   deleteLog(id: string): Promise<void>;
   listRecentLogs(): Promise<DutyLog[]>;
+  listLogsBetween(from: Date, to: Date): Promise<DutyLog[]>;
 }
 
 type StudentRow = {
@@ -65,7 +75,12 @@ type StudentRow = {
   name: string;
   rfid_uid: string;
   position: string;
+  member_type: MemberType;
+  photo_url: string;
 };
+
+const STUDENT_COLUMNS = 'id, name, rfid_uid, position, member_type, photo_url';
+const RECENT_COMPLETED_LIMIT = 50;
 
 type DutyLogRow = {
   id: string;
@@ -118,7 +133,10 @@ const schema = [
   `CREATE UNIQUE INDEX IF NOT EXISTS duty_logs_one_active_per_student
     ON duty_logs (student_id) WHERE status = 'ACTIVE'`,
   `ALTER TABLE duty_logs ADD COLUMN IF NOT EXISTS is_non_member boolean NOT NULL DEFAULT false`,
-  `CREATE INDEX IF NOT EXISTS duty_logs_updated_at_desc ON duty_logs (updated_at DESC)`
+  `CREATE INDEX IF NOT EXISTS duty_logs_updated_at_desc ON duty_logs (updated_at DESC)`,
+  `ALTER TABLE students ADD COLUMN IF NOT EXISTS member_type text NOT NULL DEFAULT 'OFFICER'`,
+  `ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url text NOT NULL DEFAULT ''`,
+  `CREATE INDEX IF NOT EXISTS duty_logs_clock_in_time ON duty_logs (clock_in_time)`
 ];
 
 export class PostgresDutyLogStore implements DutyLogStore {
@@ -159,18 +177,18 @@ export class PostgresDutyLogStore implements DutyLogStore {
 
   async listStudents(): Promise<Student[]> {
     const { rows } = await this.pool.query<StudentRow>(
-      'SELECT id, name, rfid_uid, position FROM students ORDER BY name'
+      `SELECT ${STUDENT_COLUMNS} FROM students ORDER BY name`
     );
     return rows.map(mapStudent);
   }
 
-  async createStudent(input: Omit<Student, 'id'>): Promise<Student> {
+  async createStudent(input: StudentInput): Promise<Student> {
     try {
       const { rows } = await this.pool.query<StudentRow>(
-        `INSERT INTO students (id, name, rfid_uid, position)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, name, rfid_uid, position`,
-        [randomUUID(), input.name, input.rfid_uid, input.position]
+        `INSERT INTO students (id, name, rfid_uid, position, member_type, photo_url)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING ${STUDENT_COLUMNS}`,
+        [randomUUID(), input.name, input.rfid_uid, input.position, input.member_type ?? 'OFFICER', input.photo_url ?? '']
       );
       return mapStudent(rows[0]);
     } catch (error) {
@@ -178,14 +196,16 @@ export class PostgresDutyLogStore implements DutyLogStore {
     }
   }
 
-  async updateStudent(id: string, input: Omit<Student, 'id'>): Promise<Student> {
+  async updateStudent(id: string, input: StudentInput): Promise<Student> {
     try {
       const { rows } = await this.pool.query<StudentRow>(
         `UPDATE students
-         SET name = $2, rfid_uid = $3, position = $4, updated_at = now()
+         SET name = $2, rfid_uid = $3, position = $4,
+             member_type = COALESCE($5, member_type), photo_url = COALESCE($6, photo_url),
+             updated_at = now()
          WHERE id = $1
-         RETURNING id, name, rfid_uid, position`,
-        [id, input.name, input.rfid_uid, input.position]
+         RETURNING ${STUDENT_COLUMNS}`,
+        [id, input.name, input.rfid_uid, input.position, input.member_type ?? null, input.photo_url ?? null]
       );
       if (!rows[0]) {
         throw new StoreError(404, 'Student not found');
@@ -233,7 +253,7 @@ export class PostgresDutyLogStore implements DutyLogStore {
     try {
       await client.query('BEGIN');
       const studentResult = await client.query<StudentRow>(
-        `SELECT id, name, rfid_uid, position
+        `SELECT ${STUDENT_COLUMNS}
          FROM students
          WHERE lower(rfid_uid) = lower($1)
          FOR UPDATE`,
@@ -247,13 +267,11 @@ export class PostgresDutyLogStore implements DutyLogStore {
       let officer = fallbackOfficer ?? null;
       if (officerId) {
         const officerResult = await client.query<StudentRow>(
-          'SELECT id, name, rfid_uid, position FROM students WHERE id = $1',
+          `SELECT ${STUDENT_COLUMNS} FROM students WHERE id = $1`,
           [officerId]
         );
-        if (!officerResult.rows[0]) {
-          throw new StoreError(400, 'Selected clocking officer is not on the roster');
-        }
-        officer = { id: officerResult.rows[0].id, name: officerResult.rows[0].name };
+        const selected = ensureClockingOfficer(officerResult.rows[0]);
+        officer = { id: selected.id, name: selected.name };
       }
 
       const now = new Date();
@@ -311,13 +329,10 @@ export class PostgresDutyLogStore implements DutyLogStore {
     try {
       await client.query('BEGIN');
       const officerResult = await client.query<StudentRow>(
-        'SELECT id, name, rfid_uid, position FROM students WHERE id = $1',
+        `SELECT ${STUDENT_COLUMNS} FROM students WHERE id = $1`,
         [officerId]
       );
-      const officer = officerResult.rows[0];
-      if (!officer) {
-        throw new StoreError(400, 'Selected clocking officer is not on the roster');
-      }
+      const officer = ensureClockingOfficer(officerResult.rows[0]);
 
       const now = new Date();
       const { rows } = await client.query<DutyLogRow>(
@@ -383,9 +398,25 @@ export class PostgresDutyLogStore implements DutyLogStore {
     }
   }
 
+  // Every active log is returned so nobody on duty drops off the list, followed by the latest completed ones.
   async listRecentLogs(): Promise<DutyLog[]> {
+    const [active, completed] = await Promise.all([
+      this.pool.query<DutyLogRow>(
+        `SELECT * FROM duty_logs WHERE status = 'ACTIVE' ORDER BY clock_in_time DESC`
+      ),
+      this.pool.query<DutyLogRow>(
+        `SELECT * FROM duty_logs WHERE status = 'COMPLETED' ORDER BY updated_at DESC LIMIT ${RECENT_COMPLETED_LIMIT}`
+      )
+    ]);
+    return [...active.rows, ...completed.rows].map(mapDutyLog);
+  }
+
+  async listLogsBetween(from: Date, to: Date): Promise<DutyLog[]> {
     const { rows } = await this.pool.query<DutyLogRow>(
-      'SELECT * FROM duty_logs ORDER BY updated_at DESC LIMIT 25'
+      `SELECT * FROM duty_logs
+       WHERE clock_in_time >= $1 AND clock_in_time < $2
+       ORDER BY clock_in_time`,
+      [from, to]
     );
     return rows.map(mapDutyLog);
   }
@@ -393,8 +424,8 @@ export class PostgresDutyLogStore implements DutyLogStore {
 
 export class MemoryDutyLogStore implements DutyLogStore {
   private students: Student[] = [
-    { id: 'student-1', name: 'Alice Santos', rfid_uid: 'abc123', position: '' },
-    { id: 'student-2', name: 'Brian Cruz', rfid_uid: 'def456', position: '' }
+    { id: 'student-1', name: 'Alice Santos', rfid_uid: 'abc123', position: '', member_type: 'OFFICER', photo_url: '' },
+    { id: 'student-2', name: 'Brian Cruz', rfid_uid: 'def456', position: '', member_type: 'OFFICER', photo_url: '' }
   ];
   private readonly logs: DutyLog[] = [];
 
@@ -405,20 +436,29 @@ export class MemoryDutyLogStore implements DutyLogStore {
     return structuredClone(this.students);
   }
 
-  async createStudent(input: Omit<Student, 'id'>): Promise<Student> {
+  async createStudent(input: StudentInput): Promise<Student> {
     this.ensureCardAvailable(input.rfid_uid);
-    const student = { id: randomUUID(), ...input };
+    const student: Student = {
+      id: randomUUID(),
+      ...input,
+      member_type: input.member_type ?? 'OFFICER',
+      photo_url: input.photo_url ?? ''
+    };
     this.students.push(student);
     return { ...student };
   }
 
-  async updateStudent(id: string, input: Omit<Student, 'id'>): Promise<Student> {
+  async updateStudent(id: string, input: StudentInput): Promise<Student> {
     const student = this.students.find((entry) => entry.id === id);
     if (!student) {
       throw new StoreError(404, 'Student not found');
     }
     this.ensureCardAvailable(input.rfid_uid, id);
-    Object.assign(student, input);
+    Object.assign(student, {
+      ...input,
+      member_type: input.member_type ?? student.member_type,
+      photo_url: input.photo_url ?? student.photo_url
+    });
     return { ...student };
   }
 
@@ -444,10 +484,7 @@ export class MemoryDutyLogStore implements DutyLogStore {
     }
     let officer = fallbackOfficer ?? null;
     if (officerId) {
-      const selected = this.students.find((entry) => entry.id === officerId);
-      if (!selected) {
-        throw new StoreError(400, 'Selected clocking officer is not on the roster');
-      }
+      const selected = ensureClockingOfficer(this.students.find((entry) => entry.id === officerId));
       officer = { id: selected.id, name: selected.name };
     }
 
@@ -484,10 +521,7 @@ export class MemoryDutyLogStore implements DutyLogStore {
   }
 
   async createManualLog(name: string, officerId: string): Promise<DutyScanResult> {
-    const officer = this.students.find((entry) => entry.id === officerId);
-    if (!officer) {
-      throw new StoreError(400, 'Selected clocking officer is not on the roster');
-    }
+    const officer = ensureClockingOfficer(this.students.find((entry) => entry.id === officerId));
 
     const now = new Date().toISOString();
     const dutyLog: DutyLog = {
@@ -536,9 +570,24 @@ export class MemoryDutyLogStore implements DutyLogStore {
   }
 
   async listRecentLogs(): Promise<DutyLog[]> {
-    return structuredClone(this.logs)
+    const logs = structuredClone(this.logs);
+    const active = logs
+      .filter((entry) => entry.status === 'ACTIVE')
+      .sort((left, right) => right.clockInTime.localeCompare(left.clockInTime));
+    const completed = logs
+      .filter((entry) => entry.status === 'COMPLETED')
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, 25);
+      .slice(0, RECENT_COMPLETED_LIMIT);
+    return [...active, ...completed];
+  }
+
+  async listLogsBetween(from: Date, to: Date): Promise<DutyLog[]> {
+    return structuredClone(this.logs)
+      .filter((entry) => {
+        const clockIn = new Date(entry.clockInTime).getTime();
+        return clockIn >= from.getTime() && clockIn < to.getTime();
+      })
+      .sort((left, right) => left.clockInTime.localeCompare(right.clockInTime));
   }
 
   private ensureCardAvailable(rfidUid: string, exceptId?: string): void {
@@ -551,7 +600,29 @@ export class MemoryDutyLogStore implements DutyLogStore {
 }
 
 function mapStudent(row: StudentRow): Student {
-  return { id: row.id, name: row.name, rfid_uid: row.rfid_uid, position: row.position };
+  return {
+    id: row.id,
+    name: row.name,
+    rfid_uid: row.rfid_uid,
+    position: row.position,
+    member_type: isMemberType(row.member_type) ? row.member_type : 'OFFICER',
+    photo_url: row.photo_url ?? ''
+  };
+}
+
+export function isMemberType(value: unknown): value is MemberType {
+  return typeof value === 'string' && (MEMBER_TYPES as readonly string[]).includes(value);
+}
+
+// Committee members can be clocked in, but only Officers and Junior Officers may record entries.
+function ensureClockingOfficer<T extends Pick<Student, 'id' | 'name' | 'member_type'>>(officer: T | undefined): T {
+  if (!officer) {
+    throw new StoreError(400, 'Selected clocking officer is not on the roster');
+  }
+  if (officer.member_type === 'COMMITTEE') {
+    throw new StoreError(403, 'Only Officers and Junior Officers can be the clocking officer');
+  }
+  return officer;
 }
 
 function mapDutyLog(row: DutyLogRow): DutyLog {

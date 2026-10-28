@@ -59,3 +59,37 @@ test('PostgreSQL store retains members and completed attendance across store ins
     await Promise.all([firstStore.close(), secondStore.close()]);
   }
 });
+
+test('PostgreSQL store saves member types and photos and lists logs by clock-in range', { concurrency: false }, async () => {
+  const database = newDb({ noAstCoverageCheck: true });
+  const pg = database.adapters.createPg();
+  const store = new PostgresDutyLogStore('postgres://test:test@localhost/test', new pg.Pool());
+
+  try {
+    await store.initialize();
+    const committee = await store.createStudent({
+      name: 'Committee Member',
+      rfid_uid: 'com-card',
+      position: 'Logistics',
+      member_type: 'COMMITTEE',
+      photo_url: 'data:image/jpeg;base64,AAAA'
+    });
+    const officer = await store.createStudent({ name: 'Officer', rfid_uid: 'off-card', position: 'President' });
+    assert.equal(officer.member_type, 'OFFICER');
+    assert.equal(officer.photo_url, '');
+
+    const renamed = await store.updateStudent(committee.id, { name: 'Renamed', rfid_uid: 'com-card', position: 'Logistics' });
+    assert.equal(renamed.member_type, 'COMMITTEE');
+    assert.equal(renamed.photo_url, 'data:image/jpeg;base64,AAAA');
+
+    await assert.rejects(store.recordScan('off-card', committee.id), { status: 403 });
+    await store.recordScan('com-card', officer.id);
+
+    const now = Date.now();
+    const inRange = await store.listLogsBetween(new Date(now - 60_000), new Date(now + 60_000));
+    assert.deepEqual(inRange.map((entry) => entry.studentName), ['Renamed']);
+    assert.deepEqual(await store.listLogsBetween(new Date(now + 60_000), new Date(now + 120_000)), []);
+  } finally {
+    await store.close();
+  }
+});

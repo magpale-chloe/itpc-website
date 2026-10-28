@@ -1,12 +1,22 @@
 import express from 'express';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { DutyLogStore, MemoryDutyLogStore, PostgresDutyLogStore, StoreError } from './duty-log-store.ts';
+import {
+  DutyLogStore,
+  isMemberType,
+  MemberType,
+  MemoryDutyLogStore,
+  PostgresDutyLogStore,
+  StoreError,
+  StudentInput
+} from './duty-log-store.ts';
 
 const PORT = Number(process.env.PORT) || 3000;
 const photoStore = new Map<string, { data: Buffer; expiresAt: number }>();
 const PHOTO_LIFETIME_MS = 30 * 60 * 1000;
 const SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000;
+const MAX_MEMBER_PHOTO_LENGTH = 1_500_000;
+const MAX_LOG_RANGE_MS = 62 * 24 * 60 * 60 * 1000;
 
 type LoginRole = 'executive';
 type AuthUser = { username: string; role: LoginRole };
@@ -107,25 +117,13 @@ export function createApp(options: { credentials?: StoredCredential[]; store?: D
       return;
     }
 
-    const { name, rfid_uid: rfidUid, position } = req.body as {
-      name?: unknown;
-      rfid_uid?: unknown;
-      position?: unknown;
-    };
-    if (
-      typeof name !== 'string' || !name.trim() ||
-      typeof rfidUid !== 'string' || !rfidUid.trim() ||
-      typeof position !== 'string'
-    ) {
-      res.status(400).json({ error: 'Name, RFID card ID, and position are required' });
+    const input = parseStudentInput(req.body);
+    if (typeof input === 'string') {
+      res.status(400).json({ error: input });
       return;
     }
 
-    const student = await store.createStudent({
-      name: name.trim(),
-      rfid_uid: rfidUid.trim(),
-      position: position.trim()
-    });
+    const student = await store.createStudent(input);
     res.status(201).json(student);
   });
 
@@ -140,25 +138,13 @@ export function createApp(options: { credentials?: StoredCredential[]; store?: D
       return;
     }
 
-    const { name, rfid_uid: rfidUid, position } = req.body as {
-      name?: unknown;
-      rfid_uid?: unknown;
-      position?: unknown;
-    };
-    if (
-      typeof name !== 'string' || !name.trim() ||
-      typeof rfidUid !== 'string' || !rfidUid.trim() ||
-      typeof position !== 'string'
-    ) {
-      res.status(400).json({ error: 'Name, RFID card ID, and position are required' });
+    const input = parseStudentInput(req.body);
+    if (typeof input === 'string') {
+      res.status(400).json({ error: input });
       return;
     }
 
-    res.json(await store.updateStudent(req.params.id, {
-      name: name.trim(),
-      rfid_uid: rfidUid.trim(),
-      position: position.trim()
-    }));
+    res.json(await store.updateStudent(req.params.id, input));
   });
 
   app.delete('/api/students/:id', async (req, res) => {
@@ -292,6 +278,21 @@ export function createApp(options: { credentials?: StoredCredential[]; store?: D
     })));
   });
 
+  app.get('/api/duty-log', async (req, res) => {
+    const from = new Date(typeof req.query.from === 'string' ? req.query.from : '');
+    const to = new Date(typeof req.query.to === 'string' ? req.query.to : '');
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+      res.status(400).json({ error: 'Valid "from" and "to" ISO dates are required, with "from" before "to"' });
+      return;
+    }
+    if (to.getTime() - from.getTime() > MAX_LOG_RANGE_MS) {
+      res.status(400).json({ error: 'The requested range cannot be longer than 62 days' });
+      return;
+    }
+
+    res.json(await store.listLogsBetween(from, to));
+  });
+
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof StoreError) {
       res.status(error.status).json({ error: error.message });
@@ -328,6 +329,44 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error('Unable to initialize PostgreSQL. Check DATABASE_URL and database availability:', error);
     process.exitCode = 1;
   });
+}
+
+// Returns the validated roster input, or an error message for a 400 response.
+function parseStudentInput(body: unknown): StudentInput | string {
+  const {
+    name,
+    rfid_uid: rfidUid,
+    position,
+    member_type: memberType,
+    photo_url: photoUrl
+  } = (body ?? {}) as Record<string, unknown>;
+  if (
+    typeof name !== 'string' || !name.trim() ||
+    typeof rfidUid !== 'string' || !rfidUid.trim() ||
+    typeof position !== 'string'
+  ) {
+    return 'Name, RFID card ID, and position are required';
+  }
+  if (memberType !== undefined && !isMemberType(memberType)) {
+    return 'Member type must be Officer, Junior Officer, or Committee';
+  }
+  if (photoUrl !== undefined && (
+    typeof photoUrl !== 'string' ||
+    (photoUrl !== '' && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(photoUrl))
+  )) {
+    return 'Member photo must be a PNG, JPEG, or WebP image';
+  }
+  if (typeof photoUrl === 'string' && photoUrl.length > MAX_MEMBER_PHOTO_LENGTH) {
+    return 'Member photo is too large. Choose a smaller image.';
+  }
+
+  return {
+    name: name.trim(),
+    rfid_uid: rfidUid.trim(),
+    position: position.trim(),
+    member_type: memberType as MemberType | undefined,
+    photo_url: photoUrl as string | undefined
+  };
 }
 
 function isLoginRole(value: unknown): value is LoginRole {

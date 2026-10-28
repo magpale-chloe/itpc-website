@@ -5,6 +5,10 @@
       "destination": "/"
     },
     {
+      "source": "/admin/duty-hours",
+      "destination": "/"
+    },
+    {
       "source": "/photobooth",
       "destination": "/"
     }

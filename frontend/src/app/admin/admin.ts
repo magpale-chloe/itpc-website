@@ -60,6 +60,10 @@ export class Admin {
     void this.router.navigateByUrl('/photobooth');
   }
 
+  openDutyHours(): void {
+    void this.router.navigateByUrl('/admin/duty-hours');
+  }
+
   goHome(): void {
     void this.router.navigateByUrl('/');
   }

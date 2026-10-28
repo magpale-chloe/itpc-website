@@ -1,4 +1,33 @@
 <section class="attendance-panel" aria-label="RFID attendance and duty log">
+  @if (scanFlash(); as flash) {
+    <button
+      type="button"
+      class="scan-flash"
+      [class.clock-out]="flash.action === 'CLOCK_OUT'"
+      role="status"
+      aria-live="assertive"
+      (click)="dismissScanFlash()">
+      <span class="scan-flash-card">
+        <span class="scan-flash-photo">
+          @if (flash.photoUrl) {
+            <img [src]="flash.photoUrl" [alt]="flash.name">
+          } @else {
+            <span class="avatar-initials">{{ memberInitials(flash.name) }}</span>
+          }
+        </span>
+        <span class="scan-flash-action">{{ flash.action === 'CLOCK_IN' ? 'Clocked in' : 'Clocked out' }}</span>
+        <strong class="scan-flash-name">{{ flash.name }}</strong>
+        <span class="scan-flash-meta">{{ flash.typeLabel }}{{ flash.position ? ' / ' + flash.position : '' }}</span>
+        <span class="scan-flash-time">
+          {{ flash.time }}
+          @if (flash.action === 'CLOCK_OUT') {
+            · {{ flash.totalDutyHours ?? 0 }} hours
+          }
+        </span>
+      </span>
+    </button>
+  }
+
   <section class="scan-panel" aria-labelledby="scan-title">
     <div class="section-heading">
       <p class="eyebrow">RFID attendance</p>
@@ -25,12 +54,13 @@
         name="officerId"
         required
         [(ngModel)]="selectedOfficerId"
-        [disabled]="studentLoading() || !students().length || scanPending()">
+        [disabled]="studentLoading() || !clockingOfficers().length || scanPending()">
         <option value="" disabled>Select the officer recording this entry</option>
-        @for (officer of students(); track officer.id) {
-          <option [value]="officer.id">{{ officer.name }}{{ officer.position ? ' — ' + officer.position : '' }}</option>
+        @for (officer of clockingOfficers(); track officer.id) {
+          <option [value]="officer.id">{{ officer.name }} — {{ memberTypeLabel(officer.member_type) }}{{ officer.position ? ', ' + officer.position : '' }}</option>
         }
       </select>
+      <p class="field-hint">Only Officers and Junior Officers can record entries.</p>
       <label for="rfid-identifier">{{ nameOnlyMode() ? 'Non-member name' : 'RFID card ID' }}</label>
       <div class="scan-controls">
         <input
@@ -82,26 +112,48 @@
     </div>
     @if (rosterOpen()) {
     <div id="roster-content">
-    <p class="section-note">Register a new member and card, or update an existing name, card ID, and position. Card IDs must be unique.</p>
+    <p class="section-note">Register Officers, Junior Officers, and Committee members with their card and photo, or update an existing entry. Card IDs must be unique.</p>
+
+    <div class="filter-chips" role="group" aria-label="Filter roster by member type">
+      <button type="button" class="chip" [class.selected]="rosterFilter() === 'ALL'" [attr.aria-pressed]="rosterFilter() === 'ALL'" (click)="rosterFilter.set('ALL')">
+        All <span>{{ students().length }}</span>
+      </button>
+      @for (option of memberTypeOptions; track option.value) {
+        <button type="button" class="chip" [class.selected]="rosterFilter() === option.value" [attr.aria-pressed]="rosterFilter() === option.value" (click)="rosterFilter.set(option.value)">
+          {{ option.label }}
+        </button>
+      }
+    </div>
 
     @if (studentError()) {
       <p class="error-banner" role="alert">{{ studentError() }}</p>
     }
     @if (addingStudent() && canManageRoster()) {
       <form class="add-member-form" (ngSubmit)="addStudent()">
-        <div class="roster-fields">
-          <label>
-            Name
-            <input name="newName" type="text" required [(ngModel)]="newStudent.name">
-          </label>
-          <label>
-            RFID card ID
-            <input name="newCardId" type="text" required [(ngModel)]="newStudent.rfid_uid">
-          </label>
-          <label>
-            Position
-            <input name="newPosition" type="text" [(ngModel)]="newStudent.position">
-          </label>
+        <div class="member-editor">
+          <ng-container *ngTemplateOutlet="photoPicker; context: { $implicit: newStudent, inputId: 'new-photo' }"></ng-container>
+          <div class="roster-fields">
+            <label>
+              Name
+              <input name="newName" type="text" required [(ngModel)]="newStudent.name">
+            </label>
+            <label>
+              RFID card ID
+              <input name="newCardId" type="text" required [(ngModel)]="newStudent.rfid_uid">
+            </label>
+            <label>
+              Member type
+              <select name="newMemberType" [(ngModel)]="newStudent.member_type">
+                @for (option of memberTypeOptions; track option.value) {
+                  <option [value]="option.value">{{ option.label }}</option>
+                }
+              </select>
+            </label>
+            <label>
+              Position
+              <input name="newPosition" type="text" [(ngModel)]="newStudent.position">
+            </label>
+          </div>
         </div>
         <div class="roster-actions">
           <button type="submit" class="save-btn" [disabled]="savingNewStudent() || !newStudent.name.trim() || !newStudent.rfid_uid.trim()">
@@ -114,22 +166,33 @@
       <p class="loading-state">Loading roster...</p>
     } @else {
       <div class="roster-list">
-        @for (student of students(); track student.id) {
+        @for (student of filteredStudents(); track student.id) {
           <article class="roster-entry">
             @if (editingStudentId() === student.id && draftStudent; as draft) {
-              <div class="roster-fields">
-                <label>
-                  Name
-                  <input name="editName" type="text" required [(ngModel)]="draft.name">
-                </label>
-                <label>
-                  RFID card ID
-                  <input name="editCardId" type="text" required [(ngModel)]="draft.rfid_uid">
-                </label>
-                <label>
-                  Position
-                  <input name="editPosition" type="text" [(ngModel)]="draft.position">
-                </label>
+              <div class="member-editor">
+                <ng-container *ngTemplateOutlet="photoPicker; context: { $implicit: draft, inputId: 'edit-photo-' + student.id }"></ng-container>
+                <div class="roster-fields">
+                  <label>
+                    Name
+                    <input name="editName" type="text" required [(ngModel)]="draft.name">
+                  </label>
+                  <label>
+                    RFID card ID
+                    <input name="editCardId" type="text" required [(ngModel)]="draft.rfid_uid">
+                  </label>
+                  <label>
+                    Member type
+                    <select name="editMemberType" [(ngModel)]="draft.member_type">
+                      @for (option of memberTypeOptions; track option.value) {
+                        <option [value]="option.value">{{ option.label }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label>
+                    Position
+                    <input name="editPosition" type="text" [(ngModel)]="draft.position">
+                  </label>
+                </div>
               </div>
               <div class="roster-actions">
                 <button type="button" class="save-btn" [disabled]="savingStudent()" (click)="saveStudent()">
@@ -138,10 +201,22 @@
                 <button type="button" class="cancel-btn" [disabled]="savingStudent()" (click)="cancelEdit()">Cancel</button>
               </div>
             } @else {
-              <div class="roster-person">
-                <strong>{{ student.name }}</strong>
-                <span>{{ student.position || 'Position not set' }}</span>
-                <small>Card ID: {{ student.rfid_uid }}</small>
+              <div class="roster-identity">
+                <span class="avatar">
+                  @if (student.photo_url) {
+                    <img [src]="student.photo_url" [alt]="student.name" loading="lazy">
+                  } @else {
+                    <span class="avatar-initials">{{ memberInitials(student.name) }}</span>
+                  }
+                </span>
+                <div class="roster-person">
+                  <strong>{{ student.name }}</strong>
+                  <span>
+                    <span class="type-badge" [attr.data-type]="student.member_type">{{ memberTypeLabel(student.member_type) }}</span>
+                    {{ student.position || 'Position not set' }}
+                  </span>
+                  <small>Card ID: {{ student.rfid_uid }}</small>
+                </div>
               </div>
               @if (canManageRoster()) {
                 <div class="roster-actions">
@@ -158,7 +233,7 @@
             }
           </article>
         } @empty {
-          <p class="loading-state">No RFID cards are registered yet.</p>
+          <p class="loading-state">{{ students().length ? 'No members of this type yet.' : 'No RFID cards are registered yet.' }}</p>
         }
       </div>
     }
@@ -168,6 +243,23 @@
     </div>
     }
   </section>
+
+  <ng-template #photoPicker let-member let-inputId="inputId">
+    <div class="photo-picker">
+      <span class="avatar avatar-large">
+        @if (member.photo_url) {
+          <img [src]="member.photo_url" alt="Member photo preview">
+        } @else {
+          <span class="avatar-initials">{{ memberInitials(member.name) }}</span>
+        }
+      </span>
+      <label class="photo-upload-btn" [attr.for]="inputId">{{ member.photo_url ? 'Change photo' : 'Add photo' }}</label>
+      <input [id]="inputId" class="visually-hidden" type="file" accept="image/*" (change)="onPhotoSelected($event, member)">
+      @if (member.photo_url) {
+        <button type="button" class="photo-remove-btn" (click)="member.photo_url = ''">Remove</button>
+      }
+    </div>
+  </ng-template>
 
   <section class="duty-log-table-panel" aria-label="Duty log table">
     <div class="panel-heading">
@@ -218,6 +310,39 @@
       <p class="error-banner" role="alert">{{ errorMessage() }}</p>
     }
 
+    <div class="log-filters" role="search" aria-label="Filter duty logs">
+      <label>
+        Search
+        <input
+          type="search"
+          name="logSearch"
+          placeholder="Name, card, position, or officer"
+          [ngModel]="logSearch()"
+          (ngModelChange)="logSearch.set($event)">
+      </label>
+      <label>
+        Status
+        <select name="logStatus" [ngModel]="logStatusFilter()" (ngModelChange)="logStatusFilter.set($event)">
+          <option value="ALL">All statuses</option>
+          <option value="ACTIVE">On duty ({{ activeLogCount() }})</option>
+          <option value="COMPLETED">Completed</option>
+        </select>
+      </label>
+      <label>
+        Member type
+        <select name="logType" [ngModel]="logTypeFilter()" (ngModelChange)="logTypeFilter.set($event)">
+          <option value="ALL">All members</option>
+          @for (option of memberTypeOptions; track option.value) {
+            <option [value]="option.value">{{ option.label }}</option>
+          }
+          <option value="NON_MEMBER">Non-member</option>
+        </select>
+      </label>
+      @if (logSearch() || logStatusFilter() !== 'ALL' || logTypeFilter() !== 'ALL') {
+        <button type="button" class="cancel-btn" (click)="clearLogFilters()">Clear filters</button>
+      }
+    </div>
+
     @if (loading()) {
       <p class="loading-state">Loading duty logs...</p>
     } @else {
@@ -239,12 +364,22 @@
             </tr>
           </thead>
           <tbody>
-            @for (log of logs(); track log.id ?? log.timestamp) {
-              <tr>
+            @for (log of filteredLogs(); track log.id ?? log.timestamp) {
+              @let member = getLogMember(log);
+              <tr [class.active-row]="log.status === 'ACTIVE'">
                 <td>
                   <div class="student-cell">
-                    <strong>{{ log.studentName }}</strong>
-                    <small>{{ log.isNonMember ? 'Non-member' : (log.rfidUid || log.studentId || '—') }}</small>
+                    <span class="avatar avatar-small">
+                      @if (member?.photo_url) {
+                        <img [src]="member!.photo_url" [alt]="log.studentName" loading="lazy">
+                      } @else {
+                        <span class="avatar-initials">{{ memberInitials(log.studentName) }}</span>
+                      }
+                    </span>
+                    <div class="student-cell-text">
+                      <strong>{{ log.studentName }}</strong>
+                      <small>{{ log.isNonMember ? 'Non-member' : memberTypeLabel(member?.member_type) + ' · ' + (log.rfidUid || log.studentId || '—') }}</small>
+                    </div>
                   </div>
                 </td>
                 <td>{{ log.position || '—' }}</td>
@@ -287,7 +422,9 @@
               </tr>
             } @empty {
               <tr>
-                <td [attr.colspan]="canManageRoster() ? 9 : 8" class="empty-state">No attendance scans have been recorded yet.</td>
+                <td [attr.colspan]="canManageRoster() ? 9 : 8" class="empty-state">
+                  {{ logs().length ? 'No duty logs match these filters.' : 'No attendance scans have been recorded yet.' }}
+                </td>
               </tr>
             }
           </tbody>

@@ -1,0 +1,132 @@
+<main class="hours-shell">
+  <header class="hours-topbar">
+    <div class="hours-navigation">
+      <a class="hours-brand" href="/" aria-label="Return to ITPC home">
+        <img src="assets/ITPC-LOGO-optimized.png" alt="ITPC logo" width="74" height="42">
+      </a>
+      <button class="hours-back" type="button" (click)="goBack()"><span aria-hidden="true">←</span> Back to workspace</button>
+    </div>
+  </header>
+
+  <section class="hours-intro" aria-labelledby="hours-title">
+    <p class="hours-kicker">RFID attendance / Weekly duty hours</p>
+    <h1 id="hours-title">Every hour<br><em>counted.</em></h1>
+    <p>Junior Officers and Committee members need {{ requiredHours }} duty hours each week (Monday to Sunday). Only completed sessions count toward the total.</p>
+  </section>
+
+  <section class="week-bar" aria-label="Choose a week">
+    <button type="button" class="week-nav" (click)="changeWeek(-1)" [disabled]="loading()" aria-label="Previous week">← Prev</button>
+    <div class="week-label">
+      <strong>{{ weekLabel() }}</strong>
+      <span>{{ weekOffset() === 0 ? 'This week' : (weekOffset() === -1 ? 'Last week' : '') }}</span>
+    </div>
+    <button type="button" class="week-nav" (click)="changeWeek(1)" [disabled]="loading() || weekOffset() >= 0" aria-label="Next week">Next →</button>
+    @if (weekOffset() !== 0) {
+      <button type="button" class="week-today" (click)="goToCurrentWeek()" [disabled]="loading()">This week</button>
+    }
+  </section>
+
+  <section class="hours-summary" aria-label="Weekly summary">
+    <article>
+      <span>Required members</span>
+      <strong>{{ summary().requiredCount }}</strong>
+    </article>
+    <article class="met">
+      <span>Met {{ requiredHours }} hours</span>
+      <strong>{{ summary().metCount }}</strong>
+    </article>
+    <article class="behind">
+      <span>Still short</span>
+      <strong>{{ summary().behindCount }}</strong>
+    </article>
+    <article>
+      <span>Total hours logged</span>
+      <strong>{{ summary().totalHours }}</strong>
+    </article>
+  </section>
+
+  <section class="hours-panel" aria-labelledby="hours-list-title">
+    <div class="hours-panel-heading">
+      <h2 id="hours-list-title">Member hours</h2>
+      <button type="button" class="refresh-btn" (click)="load()" [disabled]="loading()">Refresh</button>
+    </div>
+
+    <div class="hours-filters">
+      <div class="filter-chips" role="group" aria-label="Filter by member type">
+        <button type="button" class="chip" [class.selected]="typeFilter() === 'REQUIRED'" [attr.aria-pressed]="typeFilter() === 'REQUIRED'" (click)="typeFilter.set('REQUIRED')">JO + Committee</button>
+        @for (option of memberTypeOptions; track option.value) {
+          <button type="button" class="chip" [class.selected]="typeFilter() === option.value" [attr.aria-pressed]="typeFilter() === option.value" (click)="typeFilter.set(option.value)">{{ option.label }}</button>
+        }
+        <button type="button" class="chip" [class.selected]="typeFilter() === 'ALL'" [attr.aria-pressed]="typeFilter() === 'ALL'" (click)="typeFilter.set('ALL')">Everyone</button>
+      </div>
+      <div class="hours-controls">
+        <label>
+          Search
+          <input type="search" placeholder="Name or position" [ngModel]="search()" (ngModelChange)="search.set($event)">
+        </label>
+        <label>
+          Sort
+          <select [ngModel]="sortOrder()" (ngModelChange)="sortOrder.set($event)">
+            <option value="NEEDS_HOURS">Needs the most hours</option>
+            <option value="MOST_HOURS">Most hours</option>
+            <option value="NAME">Name</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    @if (errorMessage()) {
+      <p class="error-banner" role="alert">{{ errorMessage() }}</p>
+    }
+
+    @if (loading()) {
+      <p class="loading-state">Loading duty hours...</p>
+    } @else {
+      <div class="member-grid">
+        @for (week of visibleWeeks(); track week.student.id) {
+          <article class="member-card" [class.met]="week.required && week.met" [class.behind]="week.required && !week.met">
+            <span class="avatar">
+              @if (week.student.photo_url) {
+                <img [src]="week.student.photo_url" [alt]="week.student.name" loading="lazy">
+              } @else {
+                <span class="avatar-initials">{{ memberInitials(week.student.name) }}</span>
+              }
+            </span>
+            <div class="member-info">
+              <div class="member-name-row">
+                <strong>{{ week.student.name }}</strong>
+                @if (week.onDuty) {
+                  <span class="on-duty">On duty</span>
+                }
+              </div>
+              <span class="member-meta">
+                <span class="type-badge" [attr.data-type]="week.student.member_type">{{ memberTypeLabel(week.student.member_type) }}</span>
+                {{ week.student.position }}
+              </span>
+              <div class="member-hours">
+                <strong>{{ week.hours }}</strong>
+                <span>{{ week.required ? '/ ' + week.required + ' hours' : 'hours' }} · {{ week.sessions }} {{ week.sessions === 1 ? 'session' : 'sessions' }}</span>
+              </div>
+              @if (week.required) {
+                <div
+                  class="progress"
+                  role="progressbar"
+                  [attr.aria-valuenow]="week.hours"
+                  aria-valuemin="0"
+                  [attr.aria-valuemax]="week.required"
+                  [attr.aria-label]="week.student.name + ' duty hours'">
+                  <span [style.width.%]="week.progress"></span>
+                </div>
+                <span class="member-status">{{ week.met ? 'Requirement met' : week.remaining + ' hours to go' }}</span>
+              } @else {
+                <span class="member-status muted">No weekly requirement</span>
+              }
+            </div>
+          </article>
+        } @empty {
+          <p class="loading-state">{{ students().length ? 'No members match these filters.' : 'No members are on the roster yet.' }}</p>
+        }
+      </div>
+    }
+  </section>
+</main>

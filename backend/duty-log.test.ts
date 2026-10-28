@@ -484,3 +484,121 @@ test('returns 404 when the card is not registered', { concurrency: false }, asyn
   assert.equal(result.status, 404);
   assert.deepEqual(result.data, { error: 'Card not registered' });
 });
+
+test('stores member types and photos, and only lets Officers and Junior Officers clock entries', { concurrency: false }, async () => {
+  const app = createApp({
+    credentials: [{ username: 'exec', password: 'secret', role: 'executive' }]
+  });
+  const server = app.listen(0);
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Server did not bind to a local port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const login = await (await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'exec', password: 'secret', role: 'executive' })
+    })).json();
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: ['Bearer', String(login.token)].join(' ')
+    };
+    const photo = 'data:image/jpeg;base64,AAAA';
+
+    const createMember = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/students`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+
+    const invalidType = await createMember({ name: 'X', rfid_uid: 'x-1', position: '', member_type: 'GUEST' });
+    assert.equal(invalidType.status, 400);
+    const invalidPhoto = await createMember({ name: 'X', rfid_uid: 'x-1', position: '', photo_url: 'https://example.com/a.png' });
+    assert.equal(invalidPhoto.status, 400);
+
+    const committee = await (await createMember({
+      name: 'Committee Member', rfid_uid: 'com-1', position: 'Logistics', member_type: 'COMMITTEE', photo_url: photo
+    })).json();
+    assert.equal(committee.member_type, 'COMMITTEE');
+    assert.equal(committee.photo_url, photo);
+    const juniorOfficer = await (await createMember({
+      name: 'Junior Officer', rfid_uid: 'jo-1', position: 'JO', member_type: 'JUNIOR_OFFICER'
+    })).json();
+    assert.equal(juniorOfficer.photo_url, '');
+
+    // Editing without member_type/photo_url keeps the stored values.
+    const edited = await (await fetch(`${baseUrl}/api/students/${committee.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ name: 'Committee Renamed', rfid_uid: 'com-1', position: 'Logistics' })
+    })).json();
+    assert.equal(edited.member_type, 'COMMITTEE');
+    assert.equal(edited.photo_url, photo);
+
+    const committeeClocking = await fetch(`${baseUrl}/api/duty-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: 'abc123', officerId: committee.id })
+    });
+    assert.equal(committeeClocking.status, 403);
+    const committeeManual = await fetch(`${baseUrl}/api/duty-log/manual`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: 'Guest', officerId: committee.id })
+    });
+    assert.equal(committeeManual.status, 403);
+
+    const joClocking = await fetch(`${baseUrl}/api/duty-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: 'com-1', officerId: juniorOfficer.id })
+    });
+    assert.equal(joClocking.status, 200);
+    assert.equal((await joClocking.json()).scannedByOfficerName, 'Junior Officer');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('lists duty logs in a date range and keeps active logs first in recent logs', { concurrency: false }, async () => {
+  const app = createApp();
+  await postDutyLogOnApp(app, { identifier: 'abc123', officerId: 'student-2' });
+  await postDutyLogOnApp(app, { identifier: 'abc123', officerId: 'student-2' });
+  await postDutyLogOnApp(app, { identifier: 'def456', officerId: 'student-2' });
+  const server = app.listen(0);
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Server did not bind to a local port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const recent = await (await fetch(`${baseUrl}/api/duty-log/recent`)).json();
+    assert.deepEqual(recent.map((entry: { status: string }) => entry.status), ['ACTIVE', 'COMPLETED']);
+    assert.equal(recent[0].studentName, 'Brian Cruz');
+
+    const from = new Date(Date.now() - 60_000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const inRange = await fetch(`${baseUrl}/api/duty-log?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    assert.equal(inRange.status, 200);
+    assert.equal((await inRange.json()).length, 2);
+
+    const past = await (await fetch(`${baseUrl}/api/duty-log?from=2020-01-01T00:00:00Z&to=2020-01-08T00:00:00Z`)).json();
+    assert.deepEqual(past, []);
+
+    const invalid = await fetch(`${baseUrl}/api/duty-log?from=nope&to=${encodeURIComponent(to)}`);
+    assert.equal(invalid.status, 400);
+    const tooLong = await fetch(`${baseUrl}/api/duty-log?from=2020-01-01T00:00:00Z&to=2021-01-01T00:00:00Z`);
+    assert.equal(tooLong.status, 400);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});

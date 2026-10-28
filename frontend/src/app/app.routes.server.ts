@@ -6,6 +6,10 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Client
   },
   {
+    path: 'admin/duty-hours',
+    renderMode: RenderMode.Client
+  },
+  {
     path: 'photobooth',
     renderMode: RenderMode.Client
   },

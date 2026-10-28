@@ -1,18 +1,89 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectorRef,
+  Component,
+  Injector,
+  OnDestroy,
+  OnInit,
+  afterNextRender,
+  computed,
+  inject,
+  signal
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DutyLogEntry, DutyLogService, StudentRecord } from '../duty-log.service';
+import {
+  DutyLogEntry,
+  DutyLogService,
+  MEMBER_TYPE_OPTIONS,
+  MemberType,
+  StudentRecord,
+  canBeClockingOfficer,
+  memberInitials,
+  memberTypeLabel
+} from '../duty-log.service';
+import { resizeMemberPhoto } from '../member-photo';
+
+type LogStatusFilter = 'ALL' | 'ACTIVE' | 'COMPLETED';
+type LogTypeFilter = 'ALL' | MemberType | 'NON_MEMBER';
+type NewStudent = Omit<StudentRecord, 'id'>;
+
+interface ScanFlash {
+  name: string;
+  position: string;
+  typeLabel: string;
+  photoUrl: string;
+  action: DutyLogEntry['action'];
+  time: string;
+  totalDutyHours?: number;
+}
+
+const SCAN_FLASH_MS = 4000;
 
 @Component({
   selector: 'app-duty-log-table',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, NgTemplateOutlet],
   templateUrl: './duty-log-table.html',
   styleUrl: './duty-log-table.scss'
 })
-export class DutyLogTable implements OnInit {
+export class DutyLogTable implements OnInit, OnDestroy {
+  readonly memberTypeOptions = MEMBER_TYPE_OPTIONS;
+  readonly memberInitials = memberInitials;
+  readonly memberTypeLabel = memberTypeLabel;
   readonly logs = signal<DutyLogEntry[]>([]);
   readonly students = signal<StudentRecord[]>([]);
+  readonly studentsById = computed(() => new Map(this.students().map((student) => [student.id, student])));
+  readonly clockingOfficers = computed(() => this.students().filter(canBeClockingOfficer));
+  readonly rosterFilter = signal<MemberType | 'ALL'>('ALL');
+  readonly filteredStudents = computed(() => {
+    const filter = this.rosterFilter();
+    return filter === 'ALL' ? this.students() : this.students().filter((student) => student.member_type === filter);
+  });
+  readonly logSearch = signal('');
+  readonly logStatusFilter = signal<LogStatusFilter>('ALL');
+  readonly logTypeFilter = signal<LogTypeFilter>('ALL');
+  readonly activeLogCount = computed(() => this.logs().filter((log) => log.status === 'ACTIVE').length);
+  readonly filteredLogs = computed(() => {
+    const search = this.logSearch().trim().toLowerCase();
+    const status = this.logStatusFilter();
+    const type = this.logTypeFilter();
+    return this.logs()
+      .filter((log) => status === 'ALL' || (status === 'ACTIVE') === (log.status === 'ACTIVE'))
+      .filter((log) => type === 'ALL' || this.getLogType(log) === type)
+      .filter((log) => !search || [log.studentName, log.rfidUid, log.position, log.scannedByOfficerName]
+        .some((value) => value?.toLowerCase().includes(search)))
+      .sort((left, right) => {
+        const leftActive = left.status === 'ACTIVE';
+        if (leftActive !== (right.status === 'ACTIVE')) {
+          return leftActive ? -1 : 1;
+        }
+        const leftTime = leftActive ? left.clockInTime ?? left.timestamp : left.clockOutTime ?? left.timestamp;
+        const rightTime = leftActive ? right.clockInTime ?? right.timestamp : right.clockOutTime ?? right.timestamp;
+        return rightTime.localeCompare(leftTime);
+      });
+  });
+  readonly scanFlash = signal<ScanFlash | null>(null);
   readonly loading = signal(false);
   readonly studentLoading = signal(false);
   readonly savingStudent = signal(false);
@@ -38,10 +109,17 @@ export class DutyLogTable implements OnInit {
   scanIdentifier = '';
   manualLogName = '';
   selectedOfficerId = '';
-  newStudent = { name: '', rfid_uid: '', position: '' };
+  newStudent: NewStudent = this.emptyStudent();
   draftStudent: StudentRecord | null = null;
+  private scanFlashTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly changeDetector = inject(ChangeDetectorRef);
+  private readonly injector = inject(Injector);
 
   constructor(private readonly dutyLogService: DutyLogService) {}
+
+  ngOnDestroy(): void {
+    this.dismissScanFlash();
+  }
 
   ngOnInit(): void {
     this.canManageRoster.set(this.getSessionRole() === 'executive');
@@ -61,7 +139,7 @@ export class DutyLogTable implements OnInit {
       this.logs.update((current) => [
         normalized,
         ...current.filter((existing) => existing.id !== normalized.id)
-      ].slice(0, 25));
+      ]);
     });
   }
 
@@ -88,7 +166,7 @@ export class DutyLogTable implements OnInit {
     this.dutyLogService.getStudents().subscribe({
       next: (entries) => {
         this.students.set(entries);
-        if (!entries.some((student) => student.id === this.selectedOfficerId)) {
+        if (!this.clockingOfficers().some((student) => student.id === this.selectedOfficerId)) {
           this.selectedOfficerId = '';
         }
         this.studentLoading.set(false);
@@ -130,15 +208,31 @@ export class DutyLogTable implements OnInit {
         this.scanMessage.set(entry.action === 'CLOCK_IN'
           ? `${entry.studentName} clocked in at ${time}.`
           : `${entry.studentName} clocked out at ${time}. Total: ${entry.totalDutyHours ?? 0} hours.`);
+        this.showScanFlash(entry, time);
         this.scanIdentifier = '';
         this.scanPending.set(false);
+        this.refocusScanInput();
       },
       error: (error: HttpErrorResponse) => {
         const apiMessage = typeof error.error?.error === 'string' ? error.error.error : '';
         this.scanError.set(apiMessage || 'Unable to record this RFID scan.');
         this.scanPending.set(false);
+        this.refocusScanInput();
       }
     });
+  }
+
+  // The input is disabled while a scan records, which drops focus; restore it so the next card can be tapped.
+  private refocusScanInput(): void {
+    afterNextRender(() => document.getElementById('rfid-identifier')?.focus(), { injector: this.injector });
+  }
+
+  dismissScanFlash(): void {
+    if (this.scanFlashTimer) {
+      clearTimeout(this.scanFlashTimer);
+      this.scanFlashTimer = null;
+    }
+    this.scanFlash.set(null);
   }
 
   toggleNameOnlyMode(): void {
@@ -217,7 +311,24 @@ export class DutyLogTable implements OnInit {
   toggleAddStudent(): void {
     this.studentError.set('');
     this.addingStudent.update((adding) => !adding);
-    this.newStudent = { name: '', rfid_uid: '', position: '' };
+    this.newStudent = this.emptyStudent();
+  }
+
+  async onPhotoSelected(event: Event, target: Pick<StudentRecord, 'photo_url'>): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) {
+      return;
+    }
+
+    this.studentError.set('');
+    try {
+      target.photo_url = await resizeMemberPhoto(file);
+      this.changeDetector.markForCheck();
+    } catch (error) {
+      this.studentError.set(error instanceof Error ? error.message : 'Unable to use that photo.');
+    }
   }
 
   toggleRoster(): void {
@@ -236,7 +347,8 @@ export class DutyLogTable implements OnInit {
   }
 
   addStudent(): void {
-    const student = {
+    const student: NewStudent = {
+      ...this.newStudent,
       name: this.newStudent.name.trim(),
       rfid_uid: this.newStudent.rfid_uid.trim(),
       position: this.newStudent.position.trim()
@@ -251,7 +363,7 @@ export class DutyLogTable implements OnInit {
       next: (createdStudent) => {
         this.students.update((current) => [...current, createdStudent]);
         this.addingStudent.set(false);
-        this.newStudent = { name: '', rfid_uid: '', position: '' };
+        this.newStudent = this.emptyStudent();
         this.savingNewStudent.set(false);
       },
       error: (error: HttpErrorResponse) => {
@@ -341,6 +453,39 @@ export class DutyLogTable implements OnInit {
 
   getDutyStatusLabel(entry: DutyLogEntry): string {
     return entry.status === 'ACTIVE' ? 'ACTIVE' : 'COMPLETED';
+  }
+
+  getLogMember(entry: DutyLogEntry): StudentRecord | undefined {
+    return entry.isNonMember || !entry.studentId ? undefined : this.studentsById().get(entry.studentId);
+  }
+
+  clearLogFilters(): void {
+    this.logSearch.set('');
+    this.logStatusFilter.set('ALL');
+    this.logTypeFilter.set('ALL');
+  }
+
+  private getLogType(entry: DutyLogEntry): LogTypeFilter {
+    return entry.isNonMember ? 'NON_MEMBER' : this.getLogMember(entry)?.member_type ?? 'OFFICER';
+  }
+
+  private showScanFlash(entry: DutyLogEntry, time: string): void {
+    const member = this.getLogMember(entry);
+    this.dismissScanFlash();
+    this.scanFlash.set({
+      name: member?.name ?? entry.studentName,
+      position: member?.position ?? entry.position ?? '',
+      typeLabel: memberTypeLabel(member?.member_type),
+      photoUrl: member?.photo_url ?? '',
+      action: entry.action,
+      time,
+      totalDutyHours: entry.totalDutyHours
+    });
+    this.scanFlashTimer = setTimeout(() => this.dismissScanFlash(), SCAN_FLASH_MS);
+  }
+
+  private emptyStudent(): NewStudent {
+    return { name: '', rfid_uid: '', position: '', member_type: 'OFFICER', photo_url: '' };
   }
 
   private getSessionRole(): string | null {
