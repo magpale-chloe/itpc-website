@@ -602,3 +602,48 @@ test('lists duty logs in a date range and keeps active logs first in recent logs
     });
   }
 });
+
+test('keeps Executive Board sessions valid across a server restart until logout', { concurrency: false }, async () => {
+  const credentials = [{ username: 'exec', password: 'secret', role: 'executive' as const }];
+  const withServer = async <T>(app: ReturnType<typeof createApp>, run: (baseUrl: string) => Promise<T>) => {
+    const server = app.listen(0);
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Server did not bind to a local port');
+      }
+      return await run(`http://127.0.0.1:${address.port}`);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  };
+  const me = (baseUrl: string, token: string) =>
+    fetch(`${baseUrl}/api/auth/me`, { headers: { Authorization: ['Bearer', token].join(' ') } });
+
+  const token = await withServer(createApp({ credentials }), async (baseUrl) => {
+    const login = await (await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'exec', password: 'secret', role: 'executive' })
+    })).json();
+    return String(login.token);
+  });
+
+  const restarted = createApp({ credentials });
+  await withServer(restarted, async (baseUrl) => {
+    assert.equal((await me(baseUrl, token)).status, 200);
+    assert.equal((await me(baseUrl, token.slice(0, -2) + 'xx')).status, 401);
+    await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: ['Bearer', token].join(' ') }
+    });
+    assert.equal((await me(baseUrl, token)).status, 401);
+  });
+
+  const passwordChanged = createApp({ credentials: [{ ...credentials[0], password: 'rotated' }] });
+  await withServer(passwordChanged, async (baseUrl) => {
+    assert.equal((await me(baseUrl, token)).status, 401);
+  });
+});

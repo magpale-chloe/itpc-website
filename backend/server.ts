@@ -1,5 +1,5 @@
 import express from 'express';
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
   DutyLogStore,
@@ -26,9 +26,16 @@ const credentials: StoredCredential[] = [
   { username: process.env.ITPC_USERNAME || '', password: process.env.ITPC_PASSWORD || '', role: 'executive' }
 ];
 
-export function createApp(options: { credentials?: StoredCredential[]; store?: DutyLogStore } = {}) {
-  const sessions = new Map<string, Session>();
+export function createApp(options: {
+  credentials?: StoredCredential[];
+  store?: DutyLogStore;
+  sessionSecret?: string;
+} = {}) {
   const appCredentials = options.credentials ?? credentials;
+  const sessions = new SessionTokens(
+    options.sessionSecret || process.env.SESSION_SECRET || deriveSessionSecret(appCredentials),
+    appCredentials
+  );
   const store = options.store ?? new MemoryDutyLogStore();
   const app = express();
 
@@ -72,23 +79,18 @@ export function createApp(options: { credentials?: StoredCredential[]; store?: D
       return;
     }
 
-    const token = randomUUID();
-    sessions.set(token, {
-      username: credential.username,
-      role: credential.role,
-      expiresAt: Date.now() + SESSION_LIFETIME_MS
-    });
+    const expiresAt = Date.now() + SESSION_LIFETIME_MS;
     res.json({
-      token,
+      token: sessions.issue({ username: credential.username, role: credential.role, expiresAt }),
       user: { username: credential.username, role: credential.role },
-      expiresAt: Date.now() + SESSION_LIFETIME_MS
+      expiresAt
     });
   });
 
   app.post('/api/auth/logout', (req, res) => {
     const token = getBearerToken(req.headers.authorization);
     if (token) {
-      sessions.delete(token);
+      sessions.revoke(token);
     }
     res.sendStatus(204);
   });
@@ -383,16 +385,68 @@ function getBearerToken(header: string | undefined): string | null {
   return header?.startsWith('Bearer ') ? header.slice(7) : null;
 }
 
-function getSession(header: string | undefined, sessions: Map<string, Session>): Session | null {
+function getSession(header: string | undefined, sessions: SessionTokens): Session | null {
   const token = getBearerToken(header);
-  const session = token ? sessions.get(token) : undefined;
-  if (!session || session.expiresAt <= Date.now()) {
-    if (token) {
-      sessions.delete(token);
-    }
-    return null;
+  return token ? sessions.verify(token) : null;
+}
+
+// Without SESSION_SECRET, sign with a key derived from the login credentials so tokens survive restarts
+// and are invalidated whenever the password changes.
+function deriveSessionSecret(entries: StoredCredential[]): string {
+  return createHash('sha256')
+    .update(entries.map((entry) => `${entry.username}:${entry.password}:${entry.role}`).join('\n'))
+    .digest('hex');
+}
+
+// Sessions are HMAC-signed tokens rather than server memory, so a restart (deploy or Render waking from sleep)
+// does not log everyone out. Only logged-out tokens are remembered, until they would have expired anyway.
+class SessionTokens {
+  private readonly revoked = new Map<string, number>();
+
+  constructor(private readonly secret: string, private readonly credentials: StoredCredential[]) {}
+
+  issue(session: Session): string {
+    const payload = Buffer.from(JSON.stringify(session)).toString('base64url');
+    return `${payload}.${this.sign(payload)}`;
   }
-  return session;
+
+  verify(token: string): Session | null {
+    const [payload, signature, extra] = token.split('.');
+    if (!payload || !signature || extra !== undefined || this.revoked.has(token)) {
+      return null;
+    }
+    const expected = Buffer.from(this.sign(payload));
+    const actual = Buffer.from(signature);
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      return null;
+    }
+
+    try {
+      const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<Session>;
+      const stillValid = typeof session.expiresAt === 'number' && session.expiresAt > Date.now() &&
+        this.credentials.some((entry) => entry.username === session.username && entry.role === session.role);
+      return stillValid ? session as Session : null;
+    } catch {
+      return null;
+    }
+  }
+
+  revoke(token: string): void {
+    const session = this.verify(token);
+    if (session) {
+      this.revoked.set(token, session.expiresAt);
+    }
+    const now = Date.now();
+    for (const [revokedToken, expiresAt] of this.revoked) {
+      if (expiresAt <= now) {
+        this.revoked.delete(revokedToken);
+      }
+    }
+  }
+
+  private sign(payload: string): string {
+    return createHmac('sha256', this.secret).update(payload).digest('base64url');
+  }
 }
 
 function extractCardIdentifier(body: unknown): string | null {
