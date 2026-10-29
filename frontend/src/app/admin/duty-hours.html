@@ -4,13 +4,13 @@
       <a class="hours-brand" href="/" aria-label="Return to ITPC home">
         <img src="assets/ITPC-LOGO-optimized.png" alt="ITPC logo" width="74" height="42">
       </a>
-      @if (readOnly) {
-        <span class="view-only-badge">Committee · View only</span>
-        <button class="hours-back" type="button" (click)="logout()">Log out</button>
-      } @else {
+      @if (!readOnly) {
         <button class="hours-back" type="button" (click)="goBack()"><span aria-hidden="true">←</span> Back to workspace</button>
       }
     </div>
+    @if (readOnly) {
+      <button class="hours-back" type="button" (click)="logout()">Log out</button>
+    }
   </header>
 
   <section class="hours-intro" aria-labelledby="hours-title">
