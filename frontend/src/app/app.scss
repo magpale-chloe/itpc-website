@@ -146,8 +146,10 @@ h1 em, h2 em { color: var(--teal); font-style: italic; }
 }
 
 .hero-art::after { content: ''; position: absolute; inset: 18px; z-index: 1; border: 1px solid rgba(233, 241, 245, 0.35); pointer-events: none; }
-.hero-art img { position: relative; z-index: 2; display: block; transform: rotate(-8deg); box-shadow: 12px 15px 0 rgba(0, 0, 0, 0.28); }
-.hero-art .ebs-photo { width: min(48%, 230px); height: auto; aspect-ratio: 9 / 16; object-fit: contain; }
+// The two photos sit on top of each other; the second fades in and out over the first.
+.photo-stack { position: relative; z-index: 2; width: 84%; aspect-ratio: 3 / 2; transform: rotate(-6deg); box-shadow: 12px 15px 0 rgba(0, 0, 0, 0.28); }
+.photo-stack img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }
+.photo-stack img:last-child { opacity: 0; animation: photo-swap 12s ease-in-out infinite; }
 .art-label { position: absolute; z-index: 2; top: 34px; left: 34px; color: var(--paper); font-size: 1.2rem; font-weight: 900; line-height: 0.9; letter-spacing: 0.08em; text-transform: uppercase; }
 .art-label span { font-size: 0.65rem; font-weight: 500; letter-spacing: 0.02em; text-transform: none; }
 .art-sticker { position: absolute; z-index: 2; right: 25px; bottom: 28px; width: 82px; height: 82px; display: grid; place-items: center; border-radius: 50%; color: var(--darkblue); background: var(--mutedteal); font-size: 0.78rem; font-weight: 900; line-height: 0.9; text-align: center; text-transform: uppercase; transform: rotate(9deg); }
@@ -222,6 +224,9 @@ h2 { margin-bottom: 0; font-size: clamp(3rem, 6vw, 5.7rem); line-height: 0.93; }
 .login-submit:disabled { cursor: wait; opacity: 0.6; }
 .login-submit span { margin-left: 8px; color: var(--cyan); }
 .login-note { margin: 22px 0 0; color: var(--muted); font-size: 0.76rem; }
+
+@keyframes photo-swap { 0%, 42% { opacity: 0; } 50%, 92% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .photo-stack img:last-child { animation: none; } }
 
 @keyframes float-in { from { opacity: 0; transform: translateY(20px) rotate(3deg); } to { opacity: 1; transform: translateY(0) rotate(3deg); } }
 
