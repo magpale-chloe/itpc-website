@@ -15,9 +15,16 @@ interface Highlight {
   tag: string;
 }
 
+type LoginRole = 'executive' | 'committee';
+
 interface AuthUser {
   username: string;
-  role: 'executive';
+  role: LoginRole;
+}
+
+// Committee accounts are view-only and land on the duty hours page instead of the workspace.
+function homePageFor(role: LoginRole): string {
+  return role === 'committee' ? '/admin/duty-hours' : '/admin';
 }
 
 @Component({
@@ -31,6 +38,7 @@ export class App {
   readonly authApiUrl = `${PHOTO_API_BASE_URL}/api/auth`;
 
   loginOpen = false;
+  loginRole: LoginRole = 'executive';
   username = '';
   password = '';
   loginError = '';
@@ -66,7 +74,14 @@ export class App {
   }
 
   openAdmin(): void {
-    void this.router.navigateByUrl('/admin');
+    if (this.currentUser) {
+      void this.router.navigateByUrl(homePageFor(this.currentUser.role));
+    }
+  }
+
+  setLoginRole(role: LoginRole): void {
+    this.loginRole = role;
+    this.loginError = '';
   }
 
   readonly highlights: Highlight[] = [
@@ -118,7 +133,7 @@ export class App {
         body: JSON.stringify({
           username: this.username.trim(),
           password: this.password,
-          role: 'executive'
+          role: this.loginRole
         })
       });
 
@@ -132,8 +147,8 @@ export class App {
       this.currentUser = result.user;
       this.password = '';
       this.loginOpen = false;
-      const adminOpened = await this.router.navigateByUrl('/admin');
-      if (!adminOpened) {
+      const pageOpened = await this.router.navigateByUrl(homePageFor(result.user.role));
+      if (!pageOpened) {
         throw new Error('The workspace page could not be opened.');
       }
     } catch (error) {
@@ -171,12 +186,12 @@ export class App {
 
     try {
       const user = JSON.parse(storedUser) as { username?: unknown; role?: unknown };
-      if (typeof user.username !== 'string' || user.role !== 'executive') {
+      if (typeof user.username !== 'string' || (user.role !== 'executive' && user.role !== 'committee')) {
         sessionStorage.removeItem('itpc-session-token');
         sessionStorage.removeItem('itpc-session-user');
         return null;
       }
-      return { username: user.username, role: 'executive' };
+      return { username: user.username, role: user.role };
     } catch {
       sessionStorage.removeItem('itpc-session-token');
       sessionStorage.removeItem('itpc-session-user');

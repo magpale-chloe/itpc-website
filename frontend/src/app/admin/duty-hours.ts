@@ -57,6 +57,8 @@ export class DutyHours implements OnInit {
   readonly formatDuration = formatDuration;
   readonly sessionMinutes = sessionMinutes;
   readonly requiredHours = REQUIRED_WEEKLY_HOURS;
+  // Committee accounts can only view hours; the backend also refuses their edits.
+  readonly readOnly = currentRole() !== 'executive';
 
   readonly students = signal<StudentRecord[]>([]);
   readonly logs = signal<DutyLogEntry[]>([]);
@@ -203,6 +205,12 @@ export class DutyHours implements OnInit {
     void this.router.navigateByUrl('/admin');
   }
 
+  logout(): void {
+    sessionStorage.removeItem('itpc-session-token');
+    sessionStorage.removeItem('itpc-session-user');
+    window.location.assign('/');
+  }
+
   openDetails(studentId: string): void {
     this.selectedStudentId.set(studentId);
     this.cancelEdit();
@@ -217,7 +225,7 @@ export class DutyHours implements OnInit {
   }
 
   startEdit(log: DutyLogEntry): void {
-    if (!log.id || !log.clockInTime) {
+    if (this.readOnly || !log.id || !log.clockInTime) {
       return;
     }
     this.editingLogId.set(log.id);
@@ -235,6 +243,9 @@ export class DutyHours implements OnInit {
 
   // New sessions default to 8–9 AM yesterday, or to the first day of a past week being viewed.
   startAdd(): void {
+    if (this.readOnly) {
+      return;
+    }
     const day = this.weekOffset() === 0 ? new Date(Date.now() - DAY_MS) : new Date(this.weekStart());
     day.setHours(8, 0, 0, 0);
     this.editingLogId.set(NEW_SESSION_ID);
@@ -300,6 +311,18 @@ export class DutyHours implements OnInit {
 
   formatTime(iso: string | undefined): string {
     return iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '—';
+  }
+}
+
+function currentRole(): string | null {
+  if (typeof sessionStorage === 'undefined') {
+    return null;
+  }
+  try {
+    const user = JSON.parse(sessionStorage.getItem('itpc-session-user') ?? 'null') as { role?: string } | null;
+    return user?.role ?? null;
+  } catch {
+    return null;
   }
 }
 

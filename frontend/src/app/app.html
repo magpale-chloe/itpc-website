@@ -14,7 +14,7 @@
 			<a href="#story">About us</a>
 			<a href="#connect">Connect</a>
 			@if (currentUser) {
-				<button class="admin-nav-button" type="button" (click)="openAdmin()">Admin</button>
+				<button class="admin-nav-button" type="button" (click)="openAdmin()">{{ currentUser.role === 'committee' ? 'Duty hours' : 'Admin' }}</button>
 			} @else {
 				<button class="login-nav-button" type="button" (click)="openLogin()">login</button>
 			}
@@ -87,7 +87,10 @@
 			<button class="login-close" type="button" aria-label="Close login" (click)="closeLogin()">×</button>
 			<p class="kicker">ITPC ACCESS</p>
 			<h2 id="login-title">Welcome<br><em>back.</em></h2>
-			<p class="login-role">Executive Board access</p>
+			<div class="role-switcher" role="group" aria-label="Account type">
+				<button type="button" [class.active]="loginRole === 'executive'" [attr.aria-pressed]="loginRole === 'executive'" (click)="setLoginRole('executive')">Executive Board</button>
+				<button type="button" [class.active]="loginRole === 'committee'" [attr.aria-pressed]="loginRole === 'committee'" (click)="setLoginRole('committee')">Committee</button>
+			</div>
 			<form (submit)="$event.preventDefault(); login()">
 				<label for="username">Username</label>
 				<input id="username" name="username" type="text" autocomplete="username" [(ngModel)]="username">
@@ -96,7 +99,13 @@
 				<p class="login-error" role="alert">{{ loginError }}</p>
 				<button class="login-submit" type="submit" [disabled]="loginPending">{{ loginPending ? 'Logging in...' : 'Log in' }} <span aria-hidden="true">↗</span></button>
 			</form>
-			<p class="login-note">Sign in with your Executive Board account to access the workspace and photobooth.</p>
+			<p class="login-note">
+				@if (loginRole === 'committee') {
+					Sign in with the Committee account to view everyone's duty hours. Committee access is view-only.
+				} @else {
+					Sign in with your Executive Board account to access the workspace and photobooth.
+				}
+			</p>
 		</section>
 	</div>
 }

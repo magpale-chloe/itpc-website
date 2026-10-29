@@ -34,6 +34,7 @@
 .hours-brand img { width: 100%; height: 100%; display: block; object-fit: contain; object-position: left center; }
 .hours-back { display: inline-flex; align-items: center; gap: 8px; padding: 9px 0; border: 0; color: var(--teal); background: transparent; font: inherit; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
 .hours-back:hover { color: var(--darkblue); }
+.view-only-badge { padding: 6px 10px; border: 1px solid var(--teal); color: var(--teal); font-size: 0.66rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
 
 .hours-intro { max-width: 680px; padding: 72px 0 48px; }
 .hours-kicker { margin: 0 0 18px; color: var(--teal); font-size: 0.72rem; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; }

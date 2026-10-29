@@ -19,12 +19,14 @@ const SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000;
 const MAX_MEMBER_PHOTO_LENGTH = 1_500_000;
 const MAX_LOG_RANGE_MS = 62 * 24 * 60 * 60 * 1000;
 
-type LoginRole = 'executive';
+// Committee accounts can view duty hours, but every write endpoint requires 'executive'.
+type LoginRole = 'executive' | 'committee';
 type AuthUser = { username: string; role: LoginRole };
 type StoredCredential = AuthUser & { password: string };
 type Session = AuthUser & { expiresAt: number };
 const credentials: StoredCredential[] = [
-  { username: process.env.ITPC_USERNAME || '', password: process.env.ITPC_PASSWORD || '', role: 'executive' }
+  { username: process.env.ITPC_USERNAME || '', password: process.env.ITPC_PASSWORD || '', role: 'executive' },
+  { username: process.env.COMMITTEE_USERNAME || '', password: process.env.COMMITTEE_PASSWORD || '', role: 'committee' }
 ];
 
 export function createApp(options: {
@@ -449,7 +451,7 @@ function parseLogTimes(body: unknown): { clockIn: Date; clockOut: Date | null } 
 }
 
 function isLoginRole(value: unknown): value is LoginRole {
-  return value === 'executive';
+  return value === 'executive' || value === 'committee';
 }
 
 function sameSecret(expected: string, actual: string): boolean {

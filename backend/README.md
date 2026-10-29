@@ -21,6 +21,8 @@ real connection URLs or credentials.
 3. Add `DATABASE_URL` using the database's internal connection URL when the
    database and service are in the same Render region.
 4. Keep `ITPC_USERNAME` and `ITPC_PASSWORD` configured for Executive Board login.
+   Set `COMMITTEE_USERNAME` and `COMMITTEE_PASSWORD` to enable the view-only
+   Committee login, which can see everyone's duty hours but cannot edit them.
 5. Redeploy or restart the backend service.
 
 Roster edits and attendance records persist in this database across backend

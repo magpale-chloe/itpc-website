@@ -16,7 +16,7 @@ export const routes: Routes = [
 	{
 		path: 'admin/duty-hours',
 		canActivate: [authGuard],
-		data: { roles: ['executive'] },
+		data: { roles: ['executive', 'committee'] },
 		loadComponent: () => import('./admin/duty-hours').then(({ DutyHours }) => DutyHours)
 	},
 	{

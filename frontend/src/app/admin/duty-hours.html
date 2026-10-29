@@ -4,7 +4,12 @@
       <a class="hours-brand" href="/" aria-label="Return to ITPC home">
         <img src="assets/ITPC-LOGO-optimized.png" alt="ITPC logo" width="74" height="42">
       </a>
-      <button class="hours-back" type="button" (click)="goBack()"><span aria-hidden="true">←</span> Back to workspace</button>
+      @if (readOnly) {
+        <span class="view-only-badge">Committee · View only</span>
+        <button class="hours-back" type="button" (click)="logout()">Log out</button>
+      } @else {
+        <button class="hours-back" type="button" (click)="goBack()"><span aria-hidden="true">←</span> Back to workspace</button>
+      }
     </div>
   </header>
 
@@ -172,19 +177,21 @@
           </form>
         </ng-template>
 
-        <div class="session-add">
-          @if (editingLogId() === newSessionId) {
-            <article class="session">
-              <p class="session-hint">Add a completed session for any past date.</p>
-              <ng-container *ngTemplateOutlet="sessionForm; context: { $implicit: null }" />
-            </article>
-          } @else {
-            <button type="button" class="save-btn" (click)="startAdd()" [disabled]="savingLog()">+ Add session</button>
-          }
-          @if (editNotice()) {
-            <p class="session-hint" role="status">{{ editNotice() }}</p>
-          }
-        </div>
+        @if (!readOnly) {
+          <div class="session-add">
+            @if (editingLogId() === newSessionId) {
+              <article class="session">
+                <p class="session-hint">Add a completed session for any past date.</p>
+                <ng-container *ngTemplateOutlet="sessionForm; context: { $implicit: null }" />
+              </article>
+            } @else {
+              <button type="button" class="save-btn" (click)="startAdd()" [disabled]="savingLog()">+ Add session</button>
+            }
+            @if (editNotice()) {
+              <p class="session-hint" role="status">{{ editNotice() }}</p>
+            }
+          </div>
+        }
 
         <div class="session-list">
           @for (log of selectedLogs(); track log.id) {
@@ -209,7 +216,9 @@
                     · Out: {{ log.scannedByClockOutOfficerName || '—' }}
                   }
                 </p>
-                <button type="button" class="edit-btn" (click)="startEdit(log)" [disabled]="savingLog()">Edit</button>
+                @if (!readOnly) {
+                  <button type="button" class="edit-btn" (click)="startEdit(log)" [disabled]="savingLog()">Edit</button>
+                }
               }
             </article>
           } @empty {

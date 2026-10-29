@@ -70,8 +70,13 @@ test('clock in for a registered student', { concurrency: false }, async () => {
   assert.ok(result.data.timestamp);
 });
 
-test('rejects Committee / JO login as Executive Board-only access', { concurrency: false }, async () => {
-  const app = createApp();
+test('rejects Committee login when no Committee account is configured', { concurrency: false }, async () => {
+  const app = createApp({
+    credentials: [
+      { username: 'exec', password: 'secret', role: 'executive' },
+      { username: '', password: '', role: 'committee' }
+    ]
+  });
   const server = app.listen(0);
 
   try {
@@ -90,8 +95,8 @@ test('rejects Committee / JO login as Executive Board-only access', { concurrenc
       })
     });
     const result = await response.json();
-    assert.equal(response.status, 400);
-    assert.equal(result.error, 'Username, password, and account type are required');
+    assert.equal(response.status, 401);
+    assert.equal(result.error, 'Invalid account type or credentials');
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -808,6 +813,74 @@ test('lets the Executive Board add past duty sessions without overlapping existi
       body: JSON.stringify({ clockInTime: '2026-01-05T08:00:00.000Z', clockOutTime: '2026-01-05T11:30:00.000Z' })
     });
     assert.equal(editIntoOverlap.status, 409);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('lets Committee accounts view duty logs but refuses every edit', { concurrency: false }, async () => {
+  const app = createApp({
+    credentials: [
+      { username: 'exec', password: 'secret', role: 'executive' },
+      { username: 'committee', password: 'viewer', role: 'committee' }
+    ]
+  });
+  const server = app.listen(0);
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Server did not bind to a local port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const wrongType = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'committee', password: 'viewer', role: 'executive' })
+    });
+    assert.equal(wrongType.status, 401);
+
+    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'committee', password: 'viewer', role: 'committee' })
+    });
+    const login = await loginResponse.json();
+    assert.equal(loginResponse.status, 200);
+    assert.equal(login.user.role, 'committee');
+
+    const headers = { 'Content-Type': 'application/json', Authorization: ['Bearer', login.token].join(' ') };
+    const me = await fetch(`${baseUrl}/api/auth/me`, { headers });
+    assert.equal(me.status, 200);
+
+    const to = new Date();
+    const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const logs = await fetch(`${baseUrl}/api/duty-log?from=${from.toISOString()}&to=${to.toISOString()}`, { headers });
+    assert.equal(logs.status, 200);
+
+    const clockIn = new Date(to.getTime() - 2 * 60 * 60 * 1000).toISOString();
+    const clockOut = new Date(to.getTime() - 60 * 60 * 1000).toISOString();
+    const writes: [string, string, unknown][] = [
+      ['POST', '/api/students', { name: 'New', rfid_uid: 'card-x', position: 'Member' }],
+      ['PATCH', '/api/students/student-1', { name: 'Changed', rfid_uid: 'abc123', position: 'President' }],
+      ['DELETE', '/api/students/student-1', undefined],
+      ['POST', '/api/duty-log/manual', { name: 'Guest', officerId: 'student-1' }],
+      ['POST', '/api/duty-log/completed', { studentId: 'student-1', clockInTime: clockIn, clockOutTime: clockOut }],
+      ['PATCH', '/api/duty-log/any-log', { clockInTime: clockIn, clockOutTime: clockOut }],
+      ['PATCH', '/api/duty-log/any-log/clock-out', {}],
+      ['DELETE', '/api/duty-log/any-log', undefined]
+    ];
+    for (const [method, path, body] of writes) {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body)
+      });
+      assert.equal(response.status, 403, `${method} ${path} should be refused`);
+    }
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
