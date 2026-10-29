@@ -440,16 +440,14 @@ tr.active-row td:first-child {
   text-transform: uppercase;
 }
 
-.type-badge[data-type='JUNIOR_OFFICER'] {
-  border-color: #099db4;
-  color: #fff;
-  background: #099db4;
-}
-
-.type-badge[data-type='COMMITTEE'] {
-  border-color: #98bccc;
-  background: rgba(152, 188, 204, 0.35);
-}
+// Pastel badge colors, keyed by memberBadgeTone(): member type, or committee for Committee members.
+.type-badge[data-tone='officer'] { border-color: #8fb8e8; background: #d6e7fb; }
+.type-badge[data-tone='jo'] { border-color: #b9a2e6; background: #e8dcfb; }
+.type-badge[data-tone='logistics'] { border-color: #eba3c4; background: #fbdbe9; }
+.type-badge[data-tone='creatives'] { border-color: #e2c860; background: #fcf1bf; }
+.type-badge[data-tone='technical'] { border-color: #eeb17a; background: #fde3c9; }
+.type-badge[data-tone='data'] { border-color: #e59b9b; background: #f9d4d4; }
+.type-badge[data-tone='committee'] { border-color: #98bccc; background: rgba(152, 188, 204, 0.35); }
 
 .filter-chips {
   display: flex;

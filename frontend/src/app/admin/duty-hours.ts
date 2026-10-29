@@ -1,4 +1,5 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -10,6 +11,8 @@ import {
   REQUIRED_WEEKLY_HOURS,
   StudentRecord,
   hasWeeklyRequirement,
+  memberBadgeLabel,
+  memberBadgeTone,
   memberInitials,
   memberTypeLabel
 } from '../duty-log.service';
@@ -29,11 +32,12 @@ interface MemberWeek {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const NEW_SESSION_ID = 'new-session';
 
 @Component({
   selector: 'app-duty-hours',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, NgTemplateOutlet],
   templateUrl: './duty-hours.html',
   styleUrl: './duty-hours.scss',
   host: { '(document:keydown.escape)': 'closeDetails()' }
@@ -45,6 +49,8 @@ export class DutyHours implements OnInit {
   readonly memberTypeOptions = MEMBER_TYPE_OPTIONS;
   readonly memberInitials = memberInitials;
   readonly memberTypeLabel = memberTypeLabel;
+  readonly memberBadgeLabel = memberBadgeLabel;
+  readonly memberBadgeTone = memberBadgeTone;
   readonly requiredHours = REQUIRED_WEEKLY_HOURS;
 
   readonly students = signal<StudentRecord[]>([]);
@@ -61,6 +67,8 @@ export class DutyHours implements OnInit {
   readonly editClockOut = signal('');
   readonly savingLog = signal(false);
   readonly editError = signal('');
+  readonly editNotice = signal('');
+  readonly newSessionId = NEW_SESSION_ID;
   readonly maxInputTime = signal(toLocalInput(new Date().toISOString()));
 
   readonly selectedWeek = computed(() =>
@@ -217,10 +225,25 @@ export class DutyHours implements OnInit {
   cancelEdit(): void {
     this.editingLogId.set(null);
     this.editError.set('');
+    this.editNotice.set('');
   }
 
-  saveEdit(log: DutyLogEntry): void {
-    if (!log.id || this.savingLog()) {
+  // New sessions default to 8–9 AM yesterday, or to the first day of a past week being viewed.
+  startAdd(): void {
+    const day = this.weekOffset() === 0 ? new Date(Date.now() - DAY_MS) : new Date(this.weekStart());
+    day.setHours(8, 0, 0, 0);
+    this.editingLogId.set(NEW_SESSION_ID);
+    this.editClockIn.set(toLocalInput(day.toISOString()));
+    this.editClockOut.set(toLocalInput(new Date(day.getTime() + 60 * 60 * 1000).toISOString()));
+    this.maxInputTime.set(toLocalInput(new Date().toISOString()));
+    this.editError.set('');
+    this.editNotice.set('');
+  }
+
+  // Saves the open form: a new session when log is null, otherwise an edit of that log.
+  saveEdit(log: DutyLogEntry | null): void {
+    const studentId = this.selectedStudentId();
+    if ((log ? !log.id : !studentId) || this.savingLog()) {
       return;
     }
     const clockIn = new Date(this.editClockIn());
@@ -229,7 +252,7 @@ export class DutyHours implements OnInit {
       this.editError.set('Enter a valid date and time.');
       return;
     }
-    if (log.status === 'COMPLETED' && !clockOut) {
+    if ((!log || log.status === 'COMPLETED') && !clockOut) {
       this.editError.set('A completed session needs a clock-out time.');
       return;
     }
@@ -240,14 +263,22 @@ export class DutyHours implements OnInit {
 
     this.savingLog.set(true);
     this.editError.set('');
-    this.dutyLogService.updateLogTimes(log.id, clockIn.toISOString(), clockOut?.toISOString() ?? null).subscribe({
-      next: (updated) => {
-        // A log moved outside the viewed week drops out of this week's totals.
-        const updatedClockIn = new Date(updated.clockInTime ?? '').getTime();
-        const inWeek = updatedClockIn >= this.weekStart().getTime() && updatedClockIn < this.weekEnd().getTime();
-        this.logs.update((logs) => inWeek
-          ? logs.map((entry) => entry.id === updated.id ? updated : entry)
-          : logs.filter((entry) => entry.id !== updated.id));
+    this.editNotice.set('');
+    const request = log?.id
+      ? this.dutyLogService.updateLogTimes(log.id, clockIn.toISOString(), clockOut?.toISOString() ?? null)
+      : this.dutyLogService.createCompletedLog(studentId!, clockIn.toISOString(), clockOut!.toISOString());
+    request.subscribe({
+      next: (saved) => {
+        // A session outside the viewed week drops out of this week's totals.
+        const savedClockIn = new Date(saved.clockInTime ?? '').getTime();
+        const inWeek = savedClockIn >= this.weekStart().getTime() && savedClockIn < this.weekEnd().getTime();
+        this.logs.update((logs) => [
+          ...logs.filter((entry) => entry.id !== saved.id),
+          ...(inWeek ? [saved] : [])
+        ]);
+        if (!inWeek) {
+          this.editNotice.set(`Saved for ${this.formatDay(saved.clockInTime)}. That date is in a different week, so switch weeks to see it.`);
+        }
         this.savingLog.set(false);
         this.editingLogId.set(null);
       },

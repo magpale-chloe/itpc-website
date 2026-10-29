@@ -93,14 +93,14 @@
               }
             </span>
             <div class="member-info">
-              <span class="type-badge" [attr.data-type]="week.student.member_type">{{ memberTypeLabel(week.student.member_type) }}</span>
+              <span class="type-badge" [attr.data-tone]="memberBadgeTone(week.student)">{{ memberBadgeLabel(week.student) }}</span>
               <div class="member-name-row">
                 <strong>{{ week.student.name }}</strong>
                 @if (week.onDuty) {
                   <span class="on-duty">On duty</span>
                 }
               </div>
-              @if (week.student.position) {
+              @if (week.student.position && week.student.member_type !== 'COMMITTEE') {
                 <span class="member-meta">{{ week.student.position }}</span>
               }
               <div class="member-hours">
@@ -141,37 +141,55 @@
         (click)="$event.stopPropagation()">
         <header class="details-header">
           <div>
-            <span class="type-badge" [attr.data-type]="week.student.member_type">{{ memberTypeLabel(week.student.member_type) }}</span>
+            <span class="type-badge" [attr.data-tone]="memberBadgeTone(week.student)">{{ memberBadgeLabel(week.student) }}</span>
             <h2 id="details-title">{{ week.student.name }}</h2>
             <p>{{ weekLabel() }} · {{ week.hours }} {{ week.required ? '/ ' + week.required + ' hours' : 'hours' }}</p>
           </div>
           <button type="button" class="details-close" (click)="closeDetails()" [disabled]="savingLog()" aria-label="Close details">✕</button>
         </header>
 
+        <ng-template #sessionForm let-log>
+          <form class="session-edit" (ngSubmit)="saveEdit(log)">
+            <label>
+              Clock in
+              <input type="datetime-local" name="clockIn" required [max]="maxInputTime()" [ngModel]="editClockIn()" (ngModelChange)="editClockIn.set($event)">
+            </label>
+            <label>
+              Clock out{{ log?.status === 'ACTIVE' ? ' (optional)' : '' }}
+              <input type="datetime-local" name="clockOut" [required]="log?.status !== 'ACTIVE'" [max]="maxInputTime()" [ngModel]="editClockOut()" (ngModelChange)="editClockOut.set($event)">
+            </label>
+            @if (log?.status === 'ACTIVE') {
+              <p class="session-hint">Adding a clock-out time completes this session.</p>
+            }
+            @if (editError()) {
+              <p class="error-banner" role="alert">{{ editError() }}</p>
+            }
+            <div class="session-actions">
+              <button type="submit" class="save-btn" [disabled]="savingLog()">{{ savingLog() ? 'Saving...' : (log ? 'Save' : 'Add session') }}</button>
+              <button type="button" class="refresh-btn" (click)="cancelEdit()" [disabled]="savingLog()">Cancel</button>
+            </div>
+          </form>
+        </ng-template>
+
+        <div class="session-add">
+          @if (editingLogId() === newSessionId) {
+            <article class="session">
+              <p class="session-hint">Add a completed session for any past date.</p>
+              <ng-container *ngTemplateOutlet="sessionForm; context: { $implicit: null }" />
+            </article>
+          } @else {
+            <button type="button" class="save-btn" (click)="startAdd()" [disabled]="savingLog()">+ Add session</button>
+          }
+          @if (editNotice()) {
+            <p class="session-hint" role="status">{{ editNotice() }}</p>
+          }
+        </div>
+
         <div class="session-list">
           @for (log of selectedLogs(); track log.id) {
             <article class="session" [class.active]="log.status === 'ACTIVE'">
               @if (editingLogId() === log.id) {
-                <form class="session-edit" (ngSubmit)="saveEdit(log)">
-                  <label>
-                    Clock in
-                    <input type="datetime-local" name="clockIn" required [max]="maxInputTime()" [ngModel]="editClockIn()" (ngModelChange)="editClockIn.set($event)">
-                  </label>
-                  <label>
-                    Clock out{{ log.status === 'ACTIVE' ? ' (optional)' : '' }}
-                    <input type="datetime-local" name="clockOut" [required]="log.status === 'COMPLETED'" [max]="maxInputTime()" [ngModel]="editClockOut()" (ngModelChange)="editClockOut.set($event)">
-                  </label>
-                  @if (log.status === 'ACTIVE') {
-                    <p class="session-hint">Adding a clock-out time completes this session.</p>
-                  }
-                  @if (editError()) {
-                    <p class="error-banner" role="alert">{{ editError() }}</p>
-                  }
-                  <div class="session-actions">
-                    <button type="submit" class="save-btn" [disabled]="savingLog()">{{ savingLog() ? 'Saving...' : 'Save' }}</button>
-                    <button type="button" class="refresh-btn" (click)="cancelEdit()" [disabled]="savingLog()">Cancel</button>
-                  </div>
-                </form>
+                <ng-container *ngTemplateOutlet="sessionForm; context: { $implicit: log }" />
               } @else {
                 <div class="session-main">
                   <strong>{{ formatDay(log.clockInTime) }}</strong>

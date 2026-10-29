@@ -13,12 +13,16 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
+  COMMITTEE_POSITIONS,
   DutyLogEntry,
   DutyLogService,
   MEMBER_TYPE_OPTIONS,
   MemberType,
   StudentRecord,
   canBeClockingOfficer,
+  isCommitteePosition,
+  memberBadgeLabel,
+  memberBadgeTone,
   memberInitials,
   memberTypeLabel
 } from '../duty-log.service';
@@ -39,18 +43,26 @@ interface ScanFlash {
 }
 
 const SCAN_FLASH_MS = 4000;
+// Keyboard-style RFID readers type each character within a few milliseconds; people type far slower.
+const READER_KEY_GAP_MS = 60;
+const MIN_CARD_ID_LENGTH = 4;
+const NON_TEXT_INPUT_TYPES = ['button', 'checkbox', 'color', 'file', 'radio', 'range', 'reset', 'submit'];
 
 @Component({
   selector: 'app-duty-log-table',
   standalone: true,
   imports: [FormsModule, NgTemplateOutlet],
   templateUrl: './duty-log-table.html',
-  styleUrl: './duty-log-table.scss'
+  styleUrl: './duty-log-table.scss',
+  host: { '(document:keydown)': 'captureReaderScan($event)' }
 })
 export class DutyLogTable implements OnInit, OnDestroy {
   readonly memberTypeOptions = MEMBER_TYPE_OPTIONS;
   readonly memberInitials = memberInitials;
   readonly memberTypeLabel = memberTypeLabel;
+  readonly memberBadgeLabel = memberBadgeLabel;
+  readonly memberBadgeTone = memberBadgeTone;
+  readonly committeePositions = COMMITTEE_POSITIONS;
   readonly logs = signal<DutyLogEntry[]>([]);
   readonly students = signal<StudentRecord[]>([]);
   readonly studentsById = computed(() => new Map(this.students().map((student) => [student.id, student])));
@@ -112,6 +124,8 @@ export class DutyLogTable implements OnInit, OnDestroy {
   newStudent: NewStudent = this.emptyStudent();
   draftStudent: StudentRecord | null = null;
   private scanFlashTimer: ReturnType<typeof setTimeout> | null = null;
+  private readerBuffer = '';
+  private lastReaderKeyAt = 0;
   private readonly changeDetector = inject(ChangeDetectorRef);
   private readonly injector = inject(Injector);
 
@@ -222,6 +236,48 @@ export class DutyLogTable implements OnInit, OnDestroy {
     });
   }
 
+  // Lets a card be scanned without focusing the card ID box. Text fields keep their keys, so typing a
+  // card ID into a roster form still works; elsewhere a fast burst of keys ending in Enter is a scan.
+  captureReaderScan(event: KeyboardEvent): void {
+    if (this.nameOnlyMode() || event.ctrlKey || event.altKey || event.metaKey || isTextEntry(event.target)) {
+      this.readerBuffer = '';
+      return;
+    }
+    if (event.timeStamp - this.lastReaderKeyAt > READER_KEY_GAP_MS) {
+      this.readerBuffer = '';
+    }
+    this.lastReaderKeyAt = event.timeStamp;
+
+    if (event.key !== 'Enter') {
+      if (event.key.length === 1) {
+        this.readerBuffer += event.key;
+      }
+      return;
+    }
+    const identifier = this.readerBuffer.trim();
+    this.readerBuffer = '';
+    if (identifier.length < MIN_CARD_ID_LENGTH) {
+      return;
+    }
+    // Stop the Enter from also clicking whatever button has focus.
+    event.preventDefault();
+    if (this.scanPending()) {
+      return;
+    }
+    if (!this.selectedOfficerId) {
+      this.scanMessage.set('');
+      this.scanError.set('Select the clocking officer before scanning a card.');
+      return;
+    }
+    this.scanIdentifier = identifier;
+    this.scanCard();
+  }
+
+  // Moves focus off the officer picker once chosen, so a scan can't change the selection by type-ahead.
+  onOfficerSelected(): void {
+    this.refocusScanInput();
+  }
+
   // The input is disabled while a scan records, which drops focus; restore it so the next card can be tapped.
   private refocusScanInput(): void {
     afterNextRender(() => document.getElementById('rfid-identifier')?.focus(), { injector: this.injector });
@@ -300,6 +356,17 @@ export class DutyLogTable implements OnInit, OnDestroy {
         this.deletingLogId.set(null);
       }
     });
+  }
+
+  // Switching to Committee drops a free-text position so a committee has to be picked from the list.
+  clearNonCommitteePosition(target: Pick<StudentRecord, 'member_type' | 'position'>): void {
+    if (target.member_type === 'COMMITTEE' && !isCommitteePosition(target.position)) {
+      target.position = '';
+    }
+  }
+
+  hasValidPosition(target: Pick<StudentRecord, 'member_type' | 'position'>): boolean {
+    return target.member_type !== 'COMMITTEE' || isCommitteePosition(target.position);
   }
 
   beginEdit(student: StudentRecord): void {
@@ -526,4 +593,15 @@ export class DutyLogTable implements OnInit, OnDestroy {
     }
     return `Unable to record the name-only entry (HTTP ${error.status}).`;
   }
+}
+
+// Fields that handle their own keys, including selects, whose type-ahead would also react to a scan.
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+    return true;
+  }
+  return target instanceof HTMLInputElement && !NON_TEXT_INPUT_TYPES.includes(target.type);
 }

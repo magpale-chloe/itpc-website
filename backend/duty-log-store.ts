@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 
 export type DutyLogStatus = 'ACTIVE' | 'COMPLETED';
 export type MemberType = 'OFFICER' | 'JUNIOR_OFFICER' | 'COMMITTEE';
 
 export const MEMBER_TYPES: readonly MemberType[] = ['OFFICER', 'JUNIOR_OFFICER', 'COMMITTEE'];
+// A Committee member's position is the committee they belong to.
+export const COMMITTEE_POSITIONS: readonly string[] = ['Logistics', 'Data Management', 'Creatives', 'Technical & Documentation'];
 
 export interface Student {
   id: string;
@@ -66,6 +68,7 @@ export interface DutyLogStore {
   createManualLog(name: string, officerId: string): Promise<DutyScanResult>;
   clockOutLog(id: string): Promise<DutyScanResult>;
   updateLogTimes(id: string, clockInTime: Date, clockOutTime: Date | null): Promise<DutyLog>;
+  createCompletedLog(studentId: string, clockInTime: Date, clockOutTime: Date): Promise<DutyLog>;
   deleteLog(id: string): Promise<void>;
   listRecentLogs(): Promise<DutyLog[]>;
   listLogsBetween(from: Date, to: Date): Promise<DutyLog[]>;
@@ -405,6 +408,7 @@ export class PostgresDutyLogStore implements DutyLogStore {
         throw new StoreError(404, 'Duty log not found');
       }
       ensureEditableTimes(log.status, clockOutTime);
+      await this.ensureNoStudentOverlap(client, log.student_id, clockInTime, clockOutTime, id);
 
       const { rows } = await client.query<DutyLogRow>(
         `UPDATE duty_logs
@@ -427,6 +431,71 @@ export class PostgresDutyLogStore implements DutyLogStore {
     } finally {
       client.release();
     }
+  }
+
+  async createCompletedLog(studentId: string, clockInTime: Date, clockOutTime: Date): Promise<DutyLog> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const studentResult = await client.query<StudentRow>(
+        `SELECT ${STUDENT_COLUMNS} FROM students WHERE id = $1 FOR UPDATE`,
+        [studentId]
+      );
+      const student = studentResult.rows[0];
+      if (!student) {
+        throw new StoreError(404, 'Student not found');
+      }
+      await this.ensureNoStudentOverlap(client, student.id, clockInTime, clockOutTime);
+
+      const { rows } = await client.query<DutyLogRow>(
+        `INSERT INTO duty_logs (
+          id, student_id, student_name, rfid_uid, position, clock_in_time, clock_out_time, status, total_duty_hours
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'COMPLETED', $8)
+        RETURNING *`,
+        [
+          randomUUID(),
+          student.id,
+          student.name,
+          student.rfid_uid,
+          student.position,
+          clockInTime,
+          clockOutTime,
+          hoursBetween(clockInTime, clockOutTime)
+        ]
+      );
+      await client.query('COMMIT');
+      return mapDutyLog(rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async ensureNoStudentOverlap(
+    client: PoolClient,
+    studentId: string,
+    clockInTime: Date,
+    clockOutTime: Date | null,
+    exceptId?: string
+  ): Promise<void> {
+    // The member is matched in code: pg-mem answers student_id filters from the active-only partial index.
+    const { rows } = await client.query<Pick<DutyLogRow, 'id' | 'student_id' | 'clock_in_time' | 'clock_out_time'>>(
+      `SELECT id, student_id, clock_in_time, clock_out_time FROM duty_logs
+       WHERE (clock_out_time IS NULL OR clock_out_time > $1)
+         AND ($2::timestamptz IS NULL OR clock_in_time < $2)`,
+      [clockInTime, clockOutTime]
+    );
+    ensureNoOverlap(
+      rows.filter((row) => row.student_id === studentId && row.id !== exceptId).map((row) => ({
+        clockInTime: toIso(row.clock_in_time),
+        clockOutTime: row.clock_out_time === null ? undefined : toIso(row.clock_out_time)
+      })),
+      clockInTime,
+      clockOutTime
+    );
   }
 
   async deleteLog(id: string): Promise<void> {
@@ -605,6 +674,11 @@ export class MemoryDutyLogStore implements DutyLogStore {
       throw new StoreError(404, 'Duty log not found');
     }
     ensureEditableTimes(log.status, clockOutTime);
+    ensureNoOverlap(
+      this.logs.filter((entry) => entry.studentId === log.studentId && entry.id !== id),
+      clockInTime,
+      clockOutTime
+    );
 
     log.clockInTime = clockInTime.toISOString();
     log.clockOutTime = clockOutTime?.toISOString();
@@ -614,6 +688,31 @@ export class MemoryDutyLogStore implements DutyLogStore {
     }
     log.updatedAt = new Date().toISOString();
     return structuredClone(log);
+  }
+
+  async createCompletedLog(studentId: string, clockInTime: Date, clockOutTime: Date): Promise<DutyLog> {
+    const student = this.students.find((entry) => entry.id === studentId);
+    if (!student) {
+      throw new StoreError(404, 'Student not found');
+    }
+    ensureNoOverlap(this.logs.filter((entry) => entry.studentId === studentId), clockInTime, clockOutTime);
+
+    const now = new Date().toISOString();
+    const dutyLog: DutyLog = {
+      id: randomUUID(),
+      studentId: student.id,
+      studentName: student.name,
+      rfidUid: student.rfid_uid,
+      position: student.position,
+      clockInTime: clockInTime.toISOString(),
+      clockOutTime: clockOutTime.toISOString(),
+      status: 'COMPLETED',
+      totalDutyHours: hoursBetween(clockInTime, clockOutTime),
+      createdAt: now,
+      updatedAt: now
+    };
+    this.logs.push(dutyLog);
+    return structuredClone(dutyLog);
   }
 
   async deleteLog(id: string): Promise<void> {
@@ -684,6 +783,24 @@ function ensureClockingOfficer<T extends Pick<Student, 'id' | 'name' | 'member_t
 function ensureEditableTimes(status: DutyLogStatus, clockOutTime: Date | null): void {
   if (status === 'COMPLETED' && !clockOutTime) {
     throw new StoreError(400, 'A completed duty log needs a clock-out time');
+  }
+}
+
+// An open log counts as running indefinitely, so nothing may be placed after its clock-in.
+function ensureNoOverlap(
+  existing: Pick<DutyLog, 'clockInTime' | 'clockOutTime'>[],
+  clockInTime: Date,
+  clockOutTime: Date | null
+): void {
+  const start = clockInTime.getTime();
+  const end = clockOutTime?.getTime() ?? Infinity;
+  const overlaps = existing.some((entry) => {
+    const entryStart = new Date(entry.clockInTime).getTime();
+    const entryEnd = entry.clockOutTime ? new Date(entry.clockOutTime).getTime() : Infinity;
+    return start < entryEnd && entryStart < end;
+  });
+  if (overlaps) {
+    throw new StoreError(409, 'These times overlap another duty session for this member');
   }
 }
 

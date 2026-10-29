@@ -518,6 +518,8 @@ test('stores member types and photos, and only lets Officers and Junior Officers
     assert.equal(invalidType.status, 400);
     const invalidPhoto = await createMember({ name: 'X', rfid_uid: 'x-1', position: '', photo_url: 'https://example.com/a.png' });
     assert.equal(invalidPhoto.status, 400);
+    const unknownCommittee = await createMember({ name: 'X', rfid_uid: 'x-1', position: 'Catering', member_type: 'COMMITTEE' });
+    assert.equal(unknownCommittee.status, 400);
 
     const committee = await (await createMember({
       name: 'Committee Member', rfid_uid: 'com-1', position: 'Logistics', member_type: 'COMMITTEE', photo_url: photo
@@ -723,6 +725,89 @@ test('lets the Executive Board edit duty log times and recalculates hours', { co
       body: body('2026-01-05T08:00:00.000Z')
     });
     assert.equal(missing.status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('lets the Executive Board add past duty sessions without overlapping existing ones', { concurrency: false }, async () => {
+  const app = createApp({
+    credentials: [{ username: 'exec', password: 'secret', role: 'executive' }]
+  });
+  const server = app.listen(0);
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Server did not bind to a local port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const addUrl = `${baseUrl}/api/duty-log/completed`;
+    const body = (studentId: string, clockInTime: string, clockOutTime?: string) =>
+      JSON.stringify({ studentId, clockInTime, clockOutTime });
+
+    const unauthorized = await fetch(addUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body('student-1', '2026-01-05T08:00:00.000Z', '2026-01-05T09:00:00.000Z')
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'exec', password: 'secret', role: 'executive' })
+    });
+    const login = await loginResponse.json();
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + String(login.token)
+    };
+
+    const missingClockOut = await fetch(addUrl, { method: 'POST', headers, body: body('student-1', '2026-01-05T08:00:00.000Z') });
+    assert.equal(missingClockOut.status, 400);
+    const unknownMember = await fetch(addUrl, {
+      method: 'POST',
+      headers,
+      body: body('missing', '2026-01-05T08:00:00.000Z', '2026-01-05T09:00:00.000Z')
+    });
+    assert.equal(unknownMember.status, 404);
+
+    const addedResponse = await fetch(addUrl, {
+      method: 'POST',
+      headers,
+      body: body('student-1', '2026-01-05T08:00:00.000Z', '2026-01-05T11:00:00.000Z')
+    });
+    const added = await addedResponse.json();
+    assert.equal(addedResponse.status, 201);
+    assert.equal(added.studentName, 'Alice Santos');
+    assert.equal(added.status, 'COMPLETED');
+    assert.equal(added.totalDutyHours, 3);
+
+    const overlapping = await fetch(addUrl, {
+      method: 'POST',
+      headers,
+      body: body('student-1', '2026-01-05T10:00:00.000Z', '2026-01-05T12:00:00.000Z')
+    });
+    assert.equal(overlapping.status, 409);
+    const adjacent = await fetch(addUrl, {
+      method: 'POST',
+      headers,
+      body: body('student-1', '2026-01-05T11:00:00.000Z', '2026-01-05T12:00:00.000Z')
+    });
+    assert.equal(adjacent.status, 201);
+
+    const listed = await fetch(`${baseUrl}/api/duty-log?from=2026-01-05T00:00:00.000Z&to=2026-01-06T00:00:00.000Z`);
+    assert.deepEqual((await listed.json()).map((entry: { totalDutyHours: number }) => entry.totalDutyHours), [3, 1]);
+
+    const editIntoOverlap = await fetch(`${baseUrl}/api/duty-log/${added.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ clockInTime: '2026-01-05T08:00:00.000Z', clockOutTime: '2026-01-05T11:30:00.000Z' })
+    });
+    assert.equal(editIntoOverlap.status, 409);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

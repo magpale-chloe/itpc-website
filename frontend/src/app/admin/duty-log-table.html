@@ -34,7 +34,7 @@
       <h2 id="scan-title">{{ nameOnlyMode() ? 'Enter a name to clock in.' : 'Scan a card to log duty.' }}</h2>
       <p>{{ nameOnlyMode()
         ? 'Use this for a non-member without an RFID card.'
-        : 'Tap the card or scan it with a keyboard-connected RFID reader. The scan is recorded as clock-in or clock-out.' }}</p>
+        : 'Tap the card on the reader — no need to click the box first. The scan is recorded as clock-in or clock-out.' }}</p>
     </div>
 
     <form class="scan-form" (ngSubmit)="scanCard()">
@@ -54,6 +54,7 @@
         name="officerId"
         required
         [(ngModel)]="selectedOfficerId"
+        (ngModelChange)="onOfficerSelected()"
         [disabled]="studentLoading() || !clockingOfficers().length || scanPending()">
         <option value="" disabled>Select the officer recording this entry</option>
         @for (officer of clockingOfficers(); track officer.id) {
@@ -143,20 +144,29 @@
             </label>
             <label>
               Member type
-              <select name="newMemberType" [(ngModel)]="newStudent.member_type">
+              <select name="newMemberType" [(ngModel)]="newStudent.member_type" (ngModelChange)="clearNonCommitteePosition(newStudent)">
                 @for (option of memberTypeOptions; track option.value) {
                   <option [value]="option.value">{{ option.label }}</option>
                 }
               </select>
             </label>
             <label>
-              Position
-              <input name="newPosition" type="text" [(ngModel)]="newStudent.position">
+              {{ newStudent.member_type === 'COMMITTEE' ? 'Committee' : 'Position' }}
+              @if (newStudent.member_type === 'COMMITTEE') {
+                <select name="newPosition" required [(ngModel)]="newStudent.position">
+                  <option value="" disabled>Select a committee</option>
+                  @for (committee of committeePositions; track committee.value) {
+                    <option [value]="committee.value">{{ committee.value }}</option>
+                  }
+                </select>
+              } @else {
+                <input name="newPosition" type="text" [(ngModel)]="newStudent.position">
+              }
             </label>
           </div>
         </div>
         <div class="roster-actions">
-          <button type="submit" class="save-btn" [disabled]="savingNewStudent() || !newStudent.name.trim() || !newStudent.rfid_uid.trim()">
+          <button type="submit" class="save-btn" [disabled]="savingNewStudent() || !newStudent.name.trim() || !newStudent.rfid_uid.trim() || !hasValidPosition(newStudent)">
             {{ savingNewStudent() ? 'Registering...' : 'Register card' }}
           </button>
         </div>
@@ -182,20 +192,29 @@
                   </label>
                   <label>
                     Member type
-                    <select name="editMemberType" [(ngModel)]="draft.member_type">
+                    <select name="editMemberType" [(ngModel)]="draft.member_type" (ngModelChange)="clearNonCommitteePosition(draft)">
                       @for (option of memberTypeOptions; track option.value) {
                         <option [value]="option.value">{{ option.label }}</option>
                       }
                     </select>
                   </label>
                   <label>
-                    Position
-                    <input name="editPosition" type="text" [(ngModel)]="draft.position">
+                    {{ draft.member_type === 'COMMITTEE' ? 'Committee' : 'Position' }}
+                    @if (draft.member_type === 'COMMITTEE') {
+                      <select name="editPosition" required [(ngModel)]="draft.position">
+                        <option value="" disabled>Select a committee</option>
+                        @for (committee of committeePositions; track committee.value) {
+                          <option [value]="committee.value">{{ committee.value }}</option>
+                        }
+                      </select>
+                    } @else {
+                      <input name="editPosition" type="text" [(ngModel)]="draft.position">
+                    }
                   </label>
                 </div>
               </div>
               <div class="roster-actions">
-                <button type="button" class="save-btn" [disabled]="savingStudent()" (click)="saveStudent()">
+                <button type="button" class="save-btn" [disabled]="savingStudent() || !hasValidPosition(draft)" (click)="saveStudent()">
                   {{ savingStudent() ? 'Saving...' : 'Save' }}
                 </button>
                 <button type="button" class="cancel-btn" [disabled]="savingStudent()" (click)="cancelEdit()">Cancel</button>
@@ -210,9 +229,9 @@
                   }
                 </span>
                 <div class="roster-person">
-                  <span class="type-badge" [attr.data-type]="student.member_type">{{ memberTypeLabel(student.member_type) }}</span>
+                  <span class="type-badge" [attr.data-tone]="memberBadgeTone(student)">{{ memberBadgeLabel(student) }}</span>
                   <strong>{{ student.name }}</strong>
-                  <span>{{ student.position || 'Position not set' }}</span>
+                  <span>{{ student.member_type === 'COMMITTEE' ? 'Committee' : (student.position || 'Position not set') }}</span>
                   <small>Card ID: {{ student.rfid_uid }}</small>
                 </div>
               </div>

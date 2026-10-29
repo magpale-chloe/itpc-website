@@ -119,3 +119,33 @@ test('PostgreSQL store edits duty log times and recalculates hours', { concurren
     await store.close();
   }
 });
+
+test('PostgreSQL store adds past completed sessions and rejects overlaps', { concurrency: false }, async () => {
+  const database = newDb({ noAstCoverageCheck: true });
+  const pg = database.adapters.createPg();
+  const store = new PostgresDutyLogStore('postgres://test:test@localhost/test', new pg.Pool());
+
+  try {
+    await store.initialize();
+    const member = await store.createStudent({ name: 'Past Member', rfid_uid: 'past-card', position: 'Treasurer' });
+    const added = await store.createCompletedLog(
+      member.id,
+      new Date('2026-01-05T08:00:00.000Z'),
+      new Date('2026-01-05T09:30:00.000Z')
+    );
+    assert.equal(added.status, 'COMPLETED');
+    assert.equal(added.totalDutyHours, 1.5);
+    assert.equal(added.position, 'Treasurer');
+
+    await assert.rejects(
+      store.createCompletedLog(member.id, new Date('2026-01-05T09:00:00.000Z'), new Date('2026-01-05T10:00:00.000Z')),
+      { status: 409 }
+    );
+    await assert.rejects(
+      store.createCompletedLog('missing', new Date('2026-01-05T11:00:00.000Z'), new Date('2026-01-05T12:00:00.000Z')),
+      { status: 404 }
+    );
+  } finally {
+    await store.close();
+  }
+});

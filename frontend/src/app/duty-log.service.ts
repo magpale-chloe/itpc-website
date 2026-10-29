@@ -57,6 +57,35 @@ export function memberTypeLabel(type: MemberType | undefined): string {
   return MEMBER_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? 'Officer';
 }
 
+// A Committee member's position is the committee they belong to; each committee has its own badge color.
+export const COMMITTEE_POSITIONS = [
+  { value: 'Logistics', tone: 'logistics' },
+  { value: 'Data Management', tone: 'data' },
+  { value: 'Creatives', tone: 'creatives' },
+  { value: 'Technical & Documentation', tone: 'technical' }
+] as const;
+
+export function isCommitteePosition(position: string): boolean {
+  return COMMITTEE_POSITIONS.some((committee) => committee.value === position);
+}
+
+// Committee badges name the committee; everyone else's badge names their member type.
+export function memberBadgeLabel(student: Pick<StudentRecord, 'member_type' | 'position'> | undefined): string {
+  return student?.member_type === 'COMMITTEE' && isCommitteePosition(student.position)
+    ? student.position
+    : memberTypeLabel(student?.member_type);
+}
+
+export function memberBadgeTone(student: Pick<StudentRecord, 'member_type' | 'position'> | undefined): string {
+  if (student?.member_type === 'JUNIOR_OFFICER') {
+    return 'jo';
+  }
+  if (student?.member_type === 'COMMITTEE') {
+    return COMMITTEE_POSITIONS.find((committee) => committee.value === student.position)?.tone ?? 'committee';
+  }
+  return 'officer';
+}
+
 export function canBeClockingOfficer(student: StudentRecord): boolean {
   return student.member_type !== 'COMMITTEE';
 }
@@ -127,6 +156,14 @@ export class DutyLogService {
     return this.http.patch<DutyLogEntry>(
       `${PHOTO_API_BASE_URL}/api/duty-log/${encodeURIComponent(logId)}`,
       { clockInTime, clockOutTime },
+      { headers: this.authHeaders() }
+    );
+  }
+
+  createCompletedLog(studentId: string, clockInTime: string, clockOutTime: string): Observable<DutyLogEntry> {
+    return this.http.post<DutyLogEntry>(
+      `${PHOTO_API_BASE_URL}/api/duty-log/completed`,
+      { studentId, clockInTime, clockOutTime },
       { headers: this.authHeaders() }
     );
   }

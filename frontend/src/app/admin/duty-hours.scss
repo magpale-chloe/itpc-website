@@ -231,8 +231,14 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   text-transform: uppercase;
 }
 
-.type-badge[data-type='JUNIOR_OFFICER'] { border-color: var(--teal); color: #fff; background: var(--teal); }
-.type-badge[data-type='COMMITTEE'] { border-color: var(--mutedteal); background: rgba(152, 188, 204, 0.35); }
+// Pastel badge colors, keyed by memberBadgeTone(): member type, or committee for Committee members.
+.type-badge[data-tone='officer'] { border-color: #8fb8e8; background: #d6e7fb; }
+.type-badge[data-tone='jo'] { border-color: #b9a2e6; background: #e8dcfb; }
+.type-badge[data-tone='logistics'] { border-color: #eba3c4; background: #fbdbe9; }
+.type-badge[data-tone='creatives'] { border-color: #e2c860; background: #fcf1bf; }
+.type-badge[data-tone='technical'] { border-color: #eeb17a; background: #fde3c9; }
+.type-badge[data-tone='data'] { border-color: #e59b9b; background: #f9d4d4; }
+.type-badge[data-tone='committee'] { border-color: var(--mutedteal); background: rgba(152, 188, 204, 0.35); }
 
 .member-hours { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; }
 .member-hours strong { font-family: Moderustic, 'Kumbh Sans', sans-serif; font-size: 1.9rem; font-weight: 400; line-height: 1; }
@@ -299,6 +305,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 }
 
 .session-list { display: grid; gap: 10px; margin-top: 18px; }
+.session-add { display: grid; gap: 8px; margin-top: 18px; }
+.session-add > .save-btn { justify-self: start; }
 
 .session {
   display: grid;

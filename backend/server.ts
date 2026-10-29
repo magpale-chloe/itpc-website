@@ -2,6 +2,7 @@ import express from 'express';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
+  COMMITTEE_POSITIONS,
   DutyLogStore,
   isMemberType,
   MemberType,
@@ -267,31 +268,42 @@ export function createApp(options: {
       return;
     }
 
-    const { clockInTime, clockOutTime } = req.body as { clockInTime?: unknown; clockOutTime?: unknown };
-    const clockIn = new Date(typeof clockInTime === 'string' ? clockInTime : '');
-    if (Number.isNaN(clockIn.getTime())) {
-      res.status(400).json({ error: 'A valid clock-in time is required' });
-      return;
-    }
-    let clockOut: Date | null = null;
-    if (clockOutTime !== undefined && clockOutTime !== null && clockOutTime !== '') {
-      clockOut = new Date(typeof clockOutTime === 'string' ? clockOutTime : '');
-      if (Number.isNaN(clockOut.getTime())) {
-        res.status(400).json({ error: 'The clock-out time is not valid' });
-        return;
-      }
-    }
-    const now = Date.now();
-    if (clockIn.getTime() > now || (clockOut && clockOut.getTime() > now)) {
-      res.status(400).json({ error: 'Duty times cannot be in the future' });
-      return;
-    }
-    if (clockOut && clockOut <= clockIn) {
-      res.status(400).json({ error: 'Clock-out time must be after the clock-in time' });
+    const times = parseLogTimes(req.body);
+    if (typeof times === 'string') {
+      res.status(400).json({ error: times });
       return;
     }
 
-    res.json(await store.updateLogTimes(req.params.id, clockIn, clockOut));
+    res.json(await store.updateLogTimes(req.params.id, times.clockIn, times.clockOut));
+  });
+
+  app.post('/api/duty-log/completed', async (req, res) => {
+    const session = getSession(req.headers.authorization, sessions);
+    if (!session) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    if (session.role !== 'executive') {
+      res.status(403).json({ error: 'Executive Board access is required to add a duty session' });
+      return;
+    }
+
+    const studentId = req.body?.studentId;
+    if (typeof studentId !== 'string' || !studentId.trim()) {
+      res.status(400).json({ error: 'A member is required' });
+      return;
+    }
+    const times = parseLogTimes(req.body);
+    if (typeof times === 'string') {
+      res.status(400).json({ error: times });
+      return;
+    }
+    if (!times.clockOut) {
+      res.status(400).json({ error: 'A clock-out time is required' });
+      return;
+    }
+
+    res.status(201).json(await store.createCompletedLog(studentId.trim(), times.clockIn, times.clockOut));
   });
 
   app.delete('/api/duty-log/:id', async (req, res) => {
@@ -390,6 +402,9 @@ function parseStudentInput(body: unknown): StudentInput | string {
   if (memberType !== undefined && !isMemberType(memberType)) {
     return 'Member type must be Officer, Junior Officer, or Committee';
   }
+  if (memberType === 'COMMITTEE' && !COMMITTEE_POSITIONS.includes(position.trim())) {
+    return `Committee members must belong to one of: ${COMMITTEE_POSITIONS.join(', ')}`;
+  }
   if (photoUrl !== undefined && (
     typeof photoUrl !== 'string' ||
     (photoUrl !== '' && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(photoUrl))
@@ -407,6 +422,30 @@ function parseStudentInput(body: unknown): StudentInput | string {
     member_type: memberType as MemberType | undefined,
     photo_url: photoUrl as string | undefined
   };
+}
+
+// A missing, null, or empty clockOutTime means the session is still open.
+function parseLogTimes(body: unknown): { clockIn: Date; clockOut: Date | null } | string {
+  const { clockInTime, clockOutTime } = (body ?? {}) as { clockInTime?: unknown; clockOutTime?: unknown };
+  const clockIn = new Date(typeof clockInTime === 'string' ? clockInTime : '');
+  if (Number.isNaN(clockIn.getTime())) {
+    return 'A valid clock-in time is required';
+  }
+  let clockOut: Date | null = null;
+  if (clockOutTime !== undefined && clockOutTime !== null && clockOutTime !== '') {
+    clockOut = new Date(typeof clockOutTime === 'string' ? clockOutTime : '');
+    if (Number.isNaN(clockOut.getTime())) {
+      return 'The clock-out time is not valid';
+    }
+  }
+  const now = Date.now();
+  if (clockIn.getTime() > now || (clockOut && clockOut.getTime() > now)) {
+    return 'Duty times cannot be in the future';
+  }
+  if (clockOut && clockOut <= clockIn) {
+    return 'Clock-out time must be after the clock-in time';
+  }
+  return { clockIn, clockOut };
 }
 
 function isLoginRole(value: unknown): value is LoginRole {
