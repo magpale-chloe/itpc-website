@@ -21,7 +21,7 @@
         <span class="scan-flash-time">
           {{ flash.time }}
           @if (flash.action === 'CLOCK_OUT') {
-            · {{ flash.totalDutyHours ?? 0 }} hours
+            · {{ flash.duration }}
           }
         </span>
       </span>
@@ -374,7 +374,7 @@
               <th>Clock-out</th>
               <th>Clock-in officer</th>
               <th>Clock-out officer</th>
-              <th>Time span (hours)</th>
+              <th>Time span</th>
               @if (canManageRoster()) {
                 <th>Actions</th>
               }
@@ -413,7 +413,7 @@
                 <td>{{ formatTimestamp(log.clockOutTime) }}</td>
                 <td>{{ formatOfficer(log) }}</td>
                 <td>{{ formatClockOutOfficer(log) }}</td>
-                <td>{{ log.totalDutyHours ?? '—' }}</td>
+                <td>{{ log.status === 'COMPLETED' ? formatDuration(sessionMinutes(log)) : '—' }}</td>
                 @if (canManageRoster()) {
                   <td>
                     <div class="log-actions">

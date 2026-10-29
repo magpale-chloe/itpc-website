@@ -10,11 +10,13 @@ import {
   MemberType,
   REQUIRED_WEEKLY_HOURS,
   StudentRecord,
+  formatDuration,
   hasWeeklyRequirement,
   memberBadgeLabel,
   memberBadgeTone,
   memberInitials,
-  memberTypeLabel
+  memberTypeLabel,
+  sessionMinutes
 } from '../duty-log.service';
 
 type TypeFilter = 'REQUIRED' | 'ALL' | MemberType;
@@ -22,11 +24,12 @@ type SortOrder = 'NEEDS_HOURS' | 'MOST_HOURS' | 'NAME';
 
 interface MemberWeek {
   student: StudentRecord;
-  hours: number;
+  minutes: number;
   sessions: number;
   onDuty: boolean;
+  // Required hours this week; 0 when the member type has no requirement.
   required: number;
-  remaining: number;
+  remainingMinutes: number;
   progress: number;
   met: boolean;
 }
@@ -51,6 +54,8 @@ export class DutyHours implements OnInit {
   readonly memberTypeLabel = memberTypeLabel;
   readonly memberBadgeLabel = memberBadgeLabel;
   readonly memberBadgeTone = memberBadgeTone;
+  readonly formatDuration = formatDuration;
+  readonly sessionMinutes = sessionMinutes;
   readonly requiredHours = REQUIRED_WEEKLY_HOURS;
 
   readonly students = signal<StudentRecord[]>([]);
@@ -97,34 +102,34 @@ export class DutyHours implements OnInit {
   });
 
   readonly memberWeeks = computed<MemberWeek[]>(() => {
-    const totals = new Map<string, { hours: number; sessions: number; onDuty: boolean }>();
+    const totals = new Map<string, { minutes: number; sessions: number; onDuty: boolean }>();
     for (const log of this.logs()) {
       if (log.isNonMember || !log.studentId) {
         continue;
       }
-      const total = totals.get(log.studentId) ?? { hours: 0, sessions: 0, onDuty: false };
+      const total = totals.get(log.studentId) ?? { minutes: 0, sessions: 0, onDuty: false };
       if (log.status === 'ACTIVE') {
         total.onDuty = true;
       } else {
-        total.hours += log.totalDutyHours ?? 0;
+        total.minutes += sessionMinutes(log);
         total.sessions += 1;
       }
       totals.set(log.studentId, total);
     }
 
     return this.students().map((student) => {
-      const total = totals.get(student.id) ?? { hours: 0, sessions: 0, onDuty: false };
-      const hours = Number(total.hours.toFixed(2));
+      const total = totals.get(student.id) ?? { minutes: 0, sessions: 0, onDuty: false };
       const required = hasWeeklyRequirement(student) ? REQUIRED_WEEKLY_HOURS : 0;
+      const requiredMinutes = required * 60;
       return {
         student,
-        hours,
+        minutes: total.minutes,
         sessions: total.sessions,
         onDuty: total.onDuty,
         required,
-        remaining: Number(Math.max(required - hours, 0).toFixed(2)),
-        progress: required ? Math.min(hours / required, 1) * 100 : 0,
-        met: hours >= required
+        remainingMinutes: Math.max(requiredMinutes - total.minutes, 0),
+        progress: requiredMinutes ? Math.min(total.minutes / requiredMinutes, 1) * 100 : 0,
+        met: total.minutes >= requiredMinutes
       };
     });
   });
@@ -140,10 +145,10 @@ export class DutyHours implements OnInit {
         .some((value) => value.toLowerCase().includes(search)))
       .sort((left, right) => {
         if (sort === 'MOST_HOURS') {
-          return right.hours - left.hours || left.student.name.localeCompare(right.student.name);
+          return right.minutes - left.minutes || left.student.name.localeCompare(right.student.name);
         }
         if (sort === 'NEEDS_HOURS') {
-          return right.remaining - left.remaining
+          return right.remainingMinutes - left.remainingMinutes
             || right.required - left.required
             || left.student.name.localeCompare(right.student.name);
         }
@@ -157,7 +162,7 @@ export class DutyHours implements OnInit {
       requiredCount: required.length,
       metCount: required.filter((week) => week.met).length,
       behindCount: required.filter((week) => !week.met).length,
-      totalHours: Number(this.memberWeeks().reduce((sum, week) => sum + week.hours, 0).toFixed(2))
+      totalMinutes: this.memberWeeks().reduce((sum, week) => sum + week.minutes, 0)
     };
   });
 

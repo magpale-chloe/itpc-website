@@ -20,11 +20,13 @@ import {
   MemberType,
   StudentRecord,
   canBeClockingOfficer,
+  formatDuration,
   isCommitteePosition,
   memberBadgeLabel,
   memberBadgeTone,
   memberInitials,
-  memberTypeLabel
+  memberTypeLabel,
+  sessionMinutes
 } from '../duty-log.service';
 import { resizeMemberPhoto } from '../member-photo';
 
@@ -39,7 +41,7 @@ interface ScanFlash {
   photoUrl: string;
   action: DutyLogEntry['action'];
   time: string;
-  totalDutyHours?: number;
+  duration: string;
 }
 
 const SCAN_FLASH_MS = 4000;
@@ -62,6 +64,8 @@ export class DutyLogTable implements OnInit, OnDestroy {
   readonly memberTypeLabel = memberTypeLabel;
   readonly memberBadgeLabel = memberBadgeLabel;
   readonly memberBadgeTone = memberBadgeTone;
+  readonly formatDuration = formatDuration;
+  readonly sessionMinutes = sessionMinutes;
   readonly committeePositions = COMMITTEE_POSITIONS;
   readonly logs = signal<DutyLogEntry[]>([]);
   readonly students = signal<StudentRecord[]>([]);
@@ -221,7 +225,7 @@ export class DutyLogTable implements OnInit, OnDestroy {
         const time = this.formatTimestamp(entry.timestamp);
         this.scanMessage.set(entry.action === 'CLOCK_IN'
           ? `${entry.studentName} clocked in at ${time}.`
-          : `${entry.studentName} clocked out at ${time}. Total: ${entry.totalDutyHours ?? 0} hours.`);
+          : `${entry.studentName} clocked out at ${time}. Total: ${formatDuration(sessionMinutes(entry))}.`);
         this.showScanFlash(entry, time);
         this.scanIdentifier = '';
         this.scanPending.set(false);
@@ -546,7 +550,7 @@ export class DutyLogTable implements OnInit, OnDestroy {
       photoUrl: member?.photo_url ?? '',
       action: entry.action,
       time,
-      totalDutyHours: entry.totalDutyHours
+      duration: formatDuration(sessionMinutes(entry))
     });
     this.scanFlashTimer = setTimeout(() => this.dismissScanFlash(), SCAN_FLASH_MS);
   }

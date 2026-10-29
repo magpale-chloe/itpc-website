@@ -41,7 +41,7 @@
     </article>
     <article>
       <span>Total hours logged</span>
-      <strong>{{ summary().totalHours }}</strong>
+      <strong>{{ formatDuration(summary().totalMinutes) }}</strong>
     </article>
   </section>
 
@@ -104,20 +104,21 @@
                 <span class="member-meta">{{ week.student.position }}</span>
               }
               <div class="member-hours">
-                <strong>{{ week.hours }}</strong>
-                <span>{{ week.required ? '/ ' + week.required + ' hours' : 'hours' }} · {{ week.sessions }} {{ week.sessions === 1 ? 'session' : 'sessions' }}</span>
+                <strong>{{ formatDuration(week.minutes) }}</strong>
+                <span>{{ week.required ? '/ ' + week.required + 'h' : '' }} · {{ week.sessions }} {{ week.sessions === 1 ? 'session' : 'sessions' }}</span>
               </div>
               @if (week.required) {
                 <div
                   class="progress"
                   role="progressbar"
-                  [attr.aria-valuenow]="week.hours"
+                  [attr.aria-valuenow]="week.minutes"
                   aria-valuemin="0"
-                  [attr.aria-valuemax]="week.required"
+                  [attr.aria-valuemax]="week.required * 60"
+                  [attr.aria-valuetext]="formatDuration(week.minutes) + ' of ' + week.required + ' hours'"
                   [attr.aria-label]="week.student.name + ' duty hours'">
                   <span [style.width.%]="week.progress"></span>
                 </div>
-                <span class="member-status">{{ week.met ? 'Requirement met' : week.remaining + ' hours to go' }}</span>
+                <span class="member-status">{{ week.met ? 'Requirement met' : formatDuration(week.remainingMinutes) + ' to go' }}</span>
               } @else {
                 <span class="member-status muted">No weekly requirement</span>
               }
@@ -143,7 +144,7 @@
           <div>
             <span class="type-badge" [attr.data-tone]="memberBadgeTone(week.student)">{{ memberBadgeLabel(week.student) }}</span>
             <h2 id="details-title">{{ week.student.name }}</h2>
-            <p>{{ weekLabel() }} · {{ week.hours }} {{ week.required ? '/ ' + week.required + ' hours' : 'hours' }}</p>
+            <p>{{ weekLabel() }} · {{ formatDuration(week.minutes) }}{{ week.required ? ' / ' + week.required + 'h' : '' }}</p>
           </div>
           <button type="button" class="details-close" (click)="closeDetails()" [disabled]="savingLog()" aria-label="Close details">✕</button>
         </header>
@@ -199,7 +200,7 @@
                   @if (log.status === 'ACTIVE') {
                     <span class="on-duty">On duty</span>
                   } @else {
-                    <strong>{{ log.totalDutyHours ?? 0 }}</strong> <span>hrs</span>
+                    <strong>{{ formatDuration(sessionMinutes(log)) }}</strong>
                   }
                 </div>
                 <p class="session-meta">
