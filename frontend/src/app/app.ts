@@ -87,20 +87,20 @@ export class App {
   readonly highlights: Highlight[] = [
     {
       number: '01',
-      title: 'Lorem ipsum dolor sit amet',
-      description: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+      title: 'Student Leadership',
+      description: 'Creating opportunities for students to lead projects, manage events, and develop professional organizational skills.',
       tag: 'Lorem ipsum'
     },
     {
       number: '02',
-      title: 'Lorem ipsum dolor sit amet',
-      description: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+      title: 'Tech Innovation',
+      description: 'Encouraging continuous learning through technical seminars, hands-on workshops, and collaborative programming projects.',
       tag: 'Lorem ipsum'
     },
     {
       number: '03',
-      title: 'Lorem ipsum dolor sit amet',
-      description: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+      title: 'Community Building',
+      description: 'Building a supportive network of future tech professionals who share resources, ideas, and a passion for IT.',
       tag: 'Lorem ipsum'
     }
   ];
