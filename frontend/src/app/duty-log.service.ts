@@ -123,6 +123,14 @@ export class DutyLogService {
     ).pipe(tap((entry) => this.dutyLogSubject.next(entry)));
   }
 
+  updateLogTimes(logId: string, clockInTime: string, clockOutTime: string | null): Observable<DutyLogEntry> {
+    return this.http.patch<DutyLogEntry>(
+      `${PHOTO_API_BASE_URL}/api/duty-log/${encodeURIComponent(logId)}`,
+      { clockInTime, clockOutTime },
+      { headers: this.authHeaders() }
+    );
+  }
+
   deleteLog(logId: string): Observable<void> {
     return this.http.delete<void>(`${PHOTO_API_BASE_URL}/api/duty-log/${encodeURIComponent(logId)}`, {
       headers: this.authHeaders()

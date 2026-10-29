@@ -65,6 +65,7 @@ export interface DutyLogStore {
   recordScan(identifier: string, officerId?: string, fallbackOfficer?: OfficerIdentity | null): Promise<DutyScanResult>;
   createManualLog(name: string, officerId: string): Promise<DutyScanResult>;
   clockOutLog(id: string): Promise<DutyScanResult>;
+  updateLogTimes(id: string, clockInTime: Date, clockOutTime: Date | null): Promise<DutyLog>;
   deleteLog(id: string): Promise<void>;
   listRecentLogs(): Promise<DutyLog[]>;
   listLogsBetween(from: Date, to: Date): Promise<DutyLog[]>;
@@ -391,6 +392,43 @@ export class PostgresDutyLogStore implements DutyLogStore {
     }
   }
 
+  async updateLogTimes(id: string, clockInTime: Date, clockOutTime: Date | null): Promise<DutyLog> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query<DutyLogRow>(
+        `SELECT * FROM duty_logs WHERE id = $1 FOR UPDATE`,
+        [id]
+      );
+      const log = current.rows[0];
+      if (!log) {
+        throw new StoreError(404, 'Duty log not found');
+      }
+      ensureEditableTimes(log.status, clockOutTime);
+
+      const { rows } = await client.query<DutyLogRow>(
+        `UPDATE duty_logs
+         SET clock_in_time = $2, clock_out_time = $3, total_duty_hours = $4, status = $5, updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [
+          id,
+          clockInTime,
+          clockOutTime,
+          clockOutTime ? hoursBetween(clockInTime, clockOutTime) : null,
+          clockOutTime ? 'COMPLETED' : log.status
+        ]
+      );
+      await client.query('COMMIT');
+      return mapDutyLog(rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async deleteLog(id: string): Promise<void> {
     const result = await this.pool.query('DELETE FROM duty_logs WHERE id = $1', [id]);
     if (!result.rowCount) {
@@ -561,6 +599,23 @@ export class MemoryDutyLogStore implements DutyLogStore {
     return { ...log, action: 'CLOCK_OUT', timestamp: now };
   }
 
+  async updateLogTimes(id: string, clockInTime: Date, clockOutTime: Date | null): Promise<DutyLog> {
+    const log = this.logs.find((entry) => entry.id === id);
+    if (!log) {
+      throw new StoreError(404, 'Duty log not found');
+    }
+    ensureEditableTimes(log.status, clockOutTime);
+
+    log.clockInTime = clockInTime.toISOString();
+    log.clockOutTime = clockOutTime?.toISOString();
+    log.totalDutyHours = clockOutTime ? hoursBetween(clockInTime, clockOutTime) : undefined;
+    if (clockOutTime) {
+      log.status = 'COMPLETED';
+    }
+    log.updatedAt = new Date().toISOString();
+    return structuredClone(log);
+  }
+
   async deleteLog(id: string): Promise<void> {
     const index = this.logs.findIndex((entry) => entry.id === id);
     if (index === -1) {
@@ -623,6 +678,17 @@ function ensureClockingOfficer<T extends Pick<Student, 'id' | 'name' | 'member_t
     throw new StoreError(403, 'Only Officers and Junior Officers can be the clocking officer');
   }
   return officer;
+}
+
+// A completed log cannot be reopened, since that could leave a member with two active logs.
+function ensureEditableTimes(status: DutyLogStatus, clockOutTime: Date | null): void {
+  if (status === 'COMPLETED' && !clockOutTime) {
+    throw new StoreError(400, 'A completed duty log needs a clock-out time');
+  }
+}
+
+function hoursBetween(from: Date, to: Date): number {
+  return Number(((to.getTime() - from.getTime()) / 3_600_000).toFixed(2));
 }
 
 function mapDutyLog(row: DutyLogRow): DutyLog {

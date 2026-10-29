@@ -647,3 +647,85 @@ test('keeps Executive Board sessions valid across a server restart until logout'
     assert.equal((await me(baseUrl, token)).status, 401);
   });
 });
+
+test('lets the Executive Board edit duty log times and recalculates hours', { concurrency: false }, async () => {
+  const app = createApp({
+    credentials: [{ username: 'exec', password: 'secret', role: 'executive' }]
+  });
+  const server = app.listen(0);
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Server did not bind to a local port');
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const scan = await fetch(`${baseUrl}/api/duty-log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: 'abc123' })
+    });
+    const log = await scan.json();
+    const editUrl = `${baseUrl}/api/duty-log/${log.id}`;
+    const body = (clockInTime: string, clockOutTime?: string | null) => JSON.stringify({ clockInTime, clockOutTime });
+
+    const unauthorized = await fetch(editUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: body('2026-01-05T08:00:00.000Z')
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'exec', password: 'secret', role: 'executive' })
+    });
+    const login = await loginResponse.json();
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + String(login.token)
+    };
+
+    const invalid = await fetch(editUrl, { method: 'PATCH', headers, body: body('not a date') });
+    assert.equal(invalid.status, 400);
+    const backwards = await fetch(editUrl, {
+      method: 'PATCH',
+      headers,
+      body: body('2026-01-05T10:00:00.000Z', '2026-01-05T09:00:00.000Z')
+    });
+    assert.equal(backwards.status, 400);
+    const future = await fetch(editUrl, {
+      method: 'PATCH',
+      headers,
+      body: body(new Date(Date.now() + 3_600_000).toISOString())
+    });
+    assert.equal(future.status, 400);
+
+    const completedResponse = await fetch(editUrl, {
+      method: 'PATCH',
+      headers,
+      body: body('2026-01-05T08:00:00.000Z', '2026-01-05T09:45:00.000Z')
+    });
+    const completed = await completedResponse.json();
+    assert.equal(completedResponse.status, 200);
+    assert.equal(completed.status, 'COMPLETED');
+    assert.equal(completed.clockInTime, '2026-01-05T08:00:00.000Z');
+    assert.equal(completed.clockOutTime, '2026-01-05T09:45:00.000Z');
+    assert.equal(completed.totalDutyHours, 1.75);
+
+    const reopen = await fetch(editUrl, { method: 'PATCH', headers, body: body('2026-01-05T08:00:00.000Z', null) });
+    assert.equal(reopen.status, 400);
+
+    const missing = await fetch(`${baseUrl}/api/duty-log/missing`, {
+      method: 'PATCH',
+      headers,
+      body: body('2026-01-05T08:00:00.000Z')
+    });
+    assert.equal(missing.status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});

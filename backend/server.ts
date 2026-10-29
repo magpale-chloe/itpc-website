@@ -256,6 +256,44 @@ export function createApp(options: {
     res.json(await store.clockOutLog(req.params.id));
   });
 
+  app.patch('/api/duty-log/:id', async (req, res) => {
+    const session = getSession(req.headers.authorization, sessions);
+    if (!session) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    if (session.role !== 'executive') {
+      res.status(403).json({ error: 'Executive Board access is required to edit a duty log' });
+      return;
+    }
+
+    const { clockInTime, clockOutTime } = req.body as { clockInTime?: unknown; clockOutTime?: unknown };
+    const clockIn = new Date(typeof clockInTime === 'string' ? clockInTime : '');
+    if (Number.isNaN(clockIn.getTime())) {
+      res.status(400).json({ error: 'A valid clock-in time is required' });
+      return;
+    }
+    let clockOut: Date | null = null;
+    if (clockOutTime !== undefined && clockOutTime !== null && clockOutTime !== '') {
+      clockOut = new Date(typeof clockOutTime === 'string' ? clockOutTime : '');
+      if (Number.isNaN(clockOut.getTime())) {
+        res.status(400).json({ error: 'The clock-out time is not valid' });
+        return;
+      }
+    }
+    const now = Date.now();
+    if (clockIn.getTime() > now || (clockOut && clockOut.getTime() > now)) {
+      res.status(400).json({ error: 'Duty times cannot be in the future' });
+      return;
+    }
+    if (clockOut && clockOut <= clockIn) {
+      res.status(400).json({ error: 'Clock-out time must be after the clock-in time' });
+      return;
+    }
+
+    res.json(await store.updateLogTimes(req.params.id, clockIn, clockOut));
+  });
+
   app.delete('/api/duty-log/:id', async (req, res) => {
     const session = getSession(req.headers.authorization, sessions);
     if (!session) {

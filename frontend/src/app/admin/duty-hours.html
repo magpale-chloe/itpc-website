@@ -121,6 +121,7 @@
               } @else {
                 <span class="member-status muted">No weekly requirement</span>
               }
+              <button type="button" class="details-btn" (click)="openDetails(week.student.id)">View sessions →</button>
             </div>
           </article>
         } @empty {
@@ -129,4 +130,74 @@
       </div>
     }
   </section>
+
+  @if (selectedWeek(); as week) {
+    <div class="details-backdrop" (click)="closeDetails()">
+      <section
+        class="details-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="details-title"
+        (click)="$event.stopPropagation()">
+        <header class="details-header">
+          <div>
+            <span class="type-badge" [attr.data-type]="week.student.member_type">{{ memberTypeLabel(week.student.member_type) }}</span>
+            <h2 id="details-title">{{ week.student.name }}</h2>
+            <p>{{ weekLabel() }} · {{ week.hours }} {{ week.required ? '/ ' + week.required + ' hours' : 'hours' }}</p>
+          </div>
+          <button type="button" class="details-close" (click)="closeDetails()" [disabled]="savingLog()" aria-label="Close details">✕</button>
+        </header>
+
+        <div class="session-list">
+          @for (log of selectedLogs(); track log.id) {
+            <article class="session" [class.active]="log.status === 'ACTIVE'">
+              @if (editingLogId() === log.id) {
+                <form class="session-edit" (ngSubmit)="saveEdit(log)">
+                  <label>
+                    Clock in
+                    <input type="datetime-local" name="clockIn" required [max]="maxInputTime()" [ngModel]="editClockIn()" (ngModelChange)="editClockIn.set($event)">
+                  </label>
+                  <label>
+                    Clock out{{ log.status === 'ACTIVE' ? ' (optional)' : '' }}
+                    <input type="datetime-local" name="clockOut" [required]="log.status === 'COMPLETED'" [max]="maxInputTime()" [ngModel]="editClockOut()" (ngModelChange)="editClockOut.set($event)">
+                  </label>
+                  @if (log.status === 'ACTIVE') {
+                    <p class="session-hint">Adding a clock-out time completes this session.</p>
+                  }
+                  @if (editError()) {
+                    <p class="error-banner" role="alert">{{ editError() }}</p>
+                  }
+                  <div class="session-actions">
+                    <button type="submit" class="save-btn" [disabled]="savingLog()">{{ savingLog() ? 'Saving...' : 'Save' }}</button>
+                    <button type="button" class="refresh-btn" (click)="cancelEdit()" [disabled]="savingLog()">Cancel</button>
+                  </div>
+                </form>
+              } @else {
+                <div class="session-main">
+                  <strong>{{ formatDay(log.clockInTime) }}</strong>
+                  <span>{{ formatTime(log.clockInTime) }} – {{ log.status === 'ACTIVE' ? 'now' : formatTime(log.clockOutTime) }}</span>
+                </div>
+                <div class="session-hours">
+                  @if (log.status === 'ACTIVE') {
+                    <span class="on-duty">On duty</span>
+                  } @else {
+                    <strong>{{ log.totalDutyHours ?? 0 }}</strong> <span>hrs</span>
+                  }
+                </div>
+                <p class="session-meta">
+                  In: {{ log.scannedByOfficerName || '—' }}
+                  @if (log.status === 'COMPLETED') {
+                    · Out: {{ log.scannedByClockOutOfficerName || '—' }}
+                  }
+                </p>
+                <button type="button" class="edit-btn" (click)="startEdit(log)" [disabled]="savingLog()">Edit</button>
+              }
+            </article>
+          } @empty {
+            <p class="loading-state">No duty sessions recorded this week.</p>
+          }
+        </div>
+      </section>
+    </div>
+  }
 </main>

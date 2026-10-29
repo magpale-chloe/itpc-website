@@ -93,3 +93,29 @@ test('PostgreSQL store saves member types and photos and lists logs by clock-in 
     await store.close();
   }
 });
+
+test('PostgreSQL store edits duty log times and recalculates hours', { concurrency: false }, async () => {
+  const database = newDb({ noAstCoverageCheck: true });
+  const pg = database.adapters.createPg();
+  const store = new PostgresDutyLogStore('postgres://test:test@localhost/test', new pg.Pool());
+
+  try {
+    await store.initialize();
+    const member = await store.createStudent({ name: 'Edited Member', rfid_uid: 'edit-card', position: '' });
+    const active = await store.recordScan(member.rfid_uid);
+
+    const clockIn = new Date('2026-01-05T08:00:00.000Z');
+    const stillActive = await store.updateLogTimes(active.id, clockIn, null);
+    assert.equal(stillActive.status, 'ACTIVE');
+    assert.equal(stillActive.clockInTime, clockIn.toISOString());
+
+    const completed = await store.updateLogTimes(active.id, clockIn, new Date('2026-01-05T10:30:00.000Z'));
+    assert.equal(completed.status, 'COMPLETED');
+    assert.equal(completed.totalDutyHours, 2.5);
+
+    await assert.rejects(store.updateLogTimes(active.id, clockIn, null), { status: 400 });
+    await assert.rejects(store.updateLogTimes('missing', clockIn, null), { status: 404 });
+  } finally {
+    await store.close();
+  }
+});

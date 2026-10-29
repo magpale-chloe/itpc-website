@@ -35,7 +35,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
   standalone: true,
   imports: [FormsModule],
   templateUrl: './duty-hours.html',
-  styleUrl: './duty-hours.scss'
+  styleUrl: './duty-hours.scss',
+  host: { '(document:keydown.escape)': 'closeDetails()' }
 })
 export class DutyHours implements OnInit {
   private readonly dutyLogService = inject(DutyLogService);
@@ -54,6 +55,22 @@ export class DutyHours implements OnInit {
   readonly typeFilter = signal<TypeFilter>('REQUIRED');
   readonly search = signal('');
   readonly sortOrder = signal<SortOrder>('NEEDS_HOURS');
+  readonly selectedStudentId = signal<string | null>(null);
+  readonly editingLogId = signal<string | null>(null);
+  readonly editClockIn = signal('');
+  readonly editClockOut = signal('');
+  readonly savingLog = signal(false);
+  readonly editError = signal('');
+  readonly maxInputTime = signal(toLocalInput(new Date().toISOString()));
+
+  readonly selectedWeek = computed(() =>
+    this.memberWeeks().find((week) => week.student.id === this.selectedStudentId()) ?? null
+  );
+  readonly selectedLogs = computed(() =>
+    this.logs()
+      .filter((log) => !log.isNonMember && log.studentId === this.selectedStudentId())
+      .sort((left, right) => (right.clockInTime ?? '').localeCompare(left.clockInTime ?? ''))
+  );
 
   readonly weekStart = computed(() => {
     const start = startOfWeek(new Date());
@@ -172,6 +189,89 @@ export class DutyHours implements OnInit {
   goBack(): void {
     void this.router.navigateByUrl('/admin');
   }
+
+  openDetails(studentId: string): void {
+    this.selectedStudentId.set(studentId);
+    this.cancelEdit();
+  }
+
+  closeDetails(): void {
+    if (this.savingLog()) {
+      return;
+    }
+    this.selectedStudentId.set(null);
+    this.cancelEdit();
+  }
+
+  startEdit(log: DutyLogEntry): void {
+    if (!log.id || !log.clockInTime) {
+      return;
+    }
+    this.editingLogId.set(log.id);
+    this.editClockIn.set(toLocalInput(log.clockInTime));
+    this.editClockOut.set(log.clockOutTime ? toLocalInput(log.clockOutTime) : '');
+    this.maxInputTime.set(toLocalInput(new Date().toISOString()));
+    this.editError.set('');
+  }
+
+  cancelEdit(): void {
+    this.editingLogId.set(null);
+    this.editError.set('');
+  }
+
+  saveEdit(log: DutyLogEntry): void {
+    if (!log.id || this.savingLog()) {
+      return;
+    }
+    const clockIn = new Date(this.editClockIn());
+    const clockOut = this.editClockOut() ? new Date(this.editClockOut()) : null;
+    if (Number.isNaN(clockIn.getTime()) || (clockOut && Number.isNaN(clockOut.getTime()))) {
+      this.editError.set('Enter a valid date and time.');
+      return;
+    }
+    if (log.status === 'COMPLETED' && !clockOut) {
+      this.editError.set('A completed session needs a clock-out time.');
+      return;
+    }
+    if (clockOut && clockOut <= clockIn) {
+      this.editError.set('Clock-out must be after clock-in.');
+      return;
+    }
+
+    this.savingLog.set(true);
+    this.editError.set('');
+    this.dutyLogService.updateLogTimes(log.id, clockIn.toISOString(), clockOut?.toISOString() ?? null).subscribe({
+      next: (updated) => {
+        // A log moved outside the viewed week drops out of this week's totals.
+        const updatedClockIn = new Date(updated.clockInTime ?? '').getTime();
+        const inWeek = updatedClockIn >= this.weekStart().getTime() && updatedClockIn < this.weekEnd().getTime();
+        this.logs.update((logs) => inWeek
+          ? logs.map((entry) => entry.id === updated.id ? updated : entry)
+          : logs.filter((entry) => entry.id !== updated.id));
+        this.savingLog.set(false);
+        this.editingLogId.set(null);
+      },
+      error: (error: { error?: { error?: string } }) => {
+        this.editError.set(error.error?.error ?? 'Unable to save this session right now.');
+        this.savingLog.set(false);
+      }
+    });
+  }
+
+  formatDay(iso: string | undefined): string {
+    return iso ? new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+  }
+
+  formatTime(iso: string | undefined): string {
+    return iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '—';
+  }
+}
+
+// Converts an ISO timestamp to the local "YYYY-MM-DDTHH:mm" value a datetime-local input expects.
+function toLocalInput(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 // Duty weeks run Monday 00:00 to the next Monday 00:00 in local time.
