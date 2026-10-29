@@ -237,8 +237,8 @@ h2 { margin-bottom: 0; font-size: clamp(3rem, 6vw, 5.7rem); line-height: 0.93; }
 	.nav-links a { font-size: 0.66rem; }
 	.login-nav-button,
 	.admin-nav-button { padding: 7px 8px; font-size: 0.6rem; }
-	.hero { min-height: 0; grid-template-columns: 1fr; gap: 48px; padding: 64px 0 78px; }
-	h1 { font-size: clamp(3.7rem, 17vw, 6rem); }
+	.hero { min-height: 0; grid-template-columns: minmax(0, 1fr); gap: 48px; padding: 64px 0 78px; }
+	h1 { font-size: clamp(2.8rem, 17vw, 6rem); }
 	.hero-art { min-height: 420px; }
 	.intro-band { grid-template-columns: 1fr; gap: 34px; padding: 62px 0; }
 	.connect { width: calc(100% + 32px); margin-left: -16px; grid-template-columns: 1fr; gap: 34px; padding: 62px 16px; }

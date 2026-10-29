@@ -2,8 +2,10 @@
   display: block;
 }
 
+// minmax(0, 1fr) keeps the 1200px-wide log table from stretching every panel; it scrolls inside .table-wrap instead.
 .attendance-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   margin: 0 0 72px;
 }

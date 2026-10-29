@@ -62,8 +62,13 @@
   .admin-account { gap: 10px; font-size: 0.6rem; }
   .admin-account > span { max-width: 120px; text-align: right; }
   .admin-back { font-size: 0.6rem; }
-  .admin-account button { padding: 7px 8px; font-size: 0.6rem; }
+  .admin-account button { padding: 7px 8px; font-size: 0.6rem; white-space: nowrap; }
   .admin-intro { padding: 64px 0 56px; }
   .admin-intro h1 { font-size: clamp(3.6rem, 16vw, 5.8rem); }
   .admin-grid { grid-template-columns: 1fr; padding-bottom: 28px; }
+}
+
+// iPhone SE width: the role is already in the page kicker, so drop the account label to keep the top bar on one line.
+@media (max-width: 400px) {
+  .admin-account > span { display: none; }
 }

@@ -120,6 +120,8 @@ h1 {
   flex-direction: column;
   justify-content: center;
   gap: clamp(14px, 3vw, 24px);
+  // The overlay is as tall as the camera frame; scroll rather than clip if a short screen can't fit it.
+  overflow-y: auto;
   color: white;
   background: linear-gradient(135deg, rgba(0, 60, 92, 0.98), rgba(11, 123, 154, 0.94));
 }
@@ -617,6 +619,10 @@ h1 {
     gap: 10px;
   }
 
+  .layout-options.two-up {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .layout-card {
     padding: 8px;
   }
@@ -647,5 +653,36 @@ h1 {
 
   .final-strip {
     height: min(44svh, 390px);
+  }
+}
+
+// iPhone SE width: shrink the format picker so it fits inside the shorter camera frame.
+@media (max-width: 400px) {
+  .camera-setup {
+    justify-content: flex-start;
+    padding: 14px 12px;
+    gap: 10px;
+  }
+
+  .setup-heading .eyebrow {
+    margin-bottom: 4px;
+    font-size: 0.7rem;
+  }
+
+  .setup-heading h2 {
+    font-size: 1.15rem;
+  }
+
+  .strip-options {
+    gap: 6px;
+  }
+
+  .strip-card {
+    padding: 8px 4px;
+    gap: 6px;
+  }
+
+  .strip-placeholder {
+    width: 32px;
   }
 }
