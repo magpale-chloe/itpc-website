@@ -37,13 +37,14 @@ function homePageFor(role: LoginRole): string {
 export class App {
   readonly authApiUrl = `${PHOTO_API_BASE_URL}/api/auth`;
 
-  loginOpen = false;
+  // Signals, because the app is zoneless and these change after awaited requests.
+  readonly loginOpen = signal(false);
   loginRole: LoginRole = 'executive';
   username = '';
   password = '';
-  loginError = '';
-  loginPending = false;
-  currentUser: AuthUser | null = this.restoreSession();
+  readonly loginError = signal('');
+  readonly loginPending = signal(false);
+  readonly currentUser = signal<AuthUser | null>(this.restoreSession());
   readonly adminPage = signal(false);
   readonly photoboothPage = signal(false);
   readonly dutyHoursPage = signal(false);
@@ -74,14 +75,19 @@ export class App {
   }
 
   openAdmin(): void {
-    if (this.currentUser) {
-      void this.router.navigateByUrl(homePageFor(this.currentUser.role));
+    const user = this.currentUser();
+    if (user) {
+      void this.router.navigateByUrl(homePageFor(user.role));
     }
   }
 
   setLoginRole(role: LoginRole): void {
     this.loginRole = role;
-    this.loginError = '';
+    this.loginError.set('');
+  }
+
+  clearLoginError(): void {
+    this.loginError.set('');
   }
 
   readonly highlights: Highlight[] = [
@@ -106,28 +112,32 @@ export class App {
   ];
 
   openLogin(): void {
-    this.loginOpen = true;
-    this.loginError = '';
+    this.loginOpen.set(true);
+    this.loginError.set('');
   }
 
   closeLogin(): void {
-    if (!this.loginPending) {
-      this.loginOpen = false;
-      this.loginError = '';
+    if (!this.loginPending()) {
+      this.loginOpen.set(false);
+      this.loginError.set('');
     }
   }
 
   async login(): Promise<void> {
-    if (!this.username.trim() || !this.password || this.loginPending) {
-      this.loginError = 'Enter your username and password.';
+    if (this.loginPending()) {
+      return;
+    }
+    if (!this.username.trim() || !this.password) {
+      this.loginError.set('Enter your username and password.');
       return;
     }
 
-    this.loginPending = true;
-    this.loginError = '';
+    this.loginPending.set(true);
+    this.loginError.set('');
 
+    let response: Response;
     try {
-      const response = await fetch(`${this.authApiUrl}/login`, {
+      response = await fetch(`${this.authApiUrl}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -136,28 +146,48 @@ export class App {
           role: this.loginRole
         })
       });
+    } catch {
+      this.loginError.set('The login service is unavailable right now. Please try again later.');
+      this.loginPending.set(false);
+      return;
+    }
 
-      const result = await response.json() as { token?: string; user?: AuthUser; error?: string };
+    try {
+      // A proxy or crashed server may answer with HTML, so a body that isn't JSON is treated as empty.
+      const result = await response.json().catch(() => ({})) as { token?: string; user?: AuthUser; error?: string };
       if (!response.ok || !result.token || !result.user) {
-        throw new Error(result.error || 'Login failed.');
+        this.password = '';
+        this.loginError.set(this.loginFailureMessage(response.status, result.error));
+        return;
       }
 
       sessionStorage.setItem('itpc-session-token', result.token);
       sessionStorage.setItem('itpc-session-user', JSON.stringify(result.user));
-      this.currentUser = result.user;
+      this.currentUser.set(result.user);
       this.password = '';
-      this.loginOpen = false;
+      this.loginOpen.set(false);
       const pageOpened = await this.router.navigateByUrl(homePageFor(result.user.role));
       if (!pageOpened) {
-        throw new Error('The workspace page could not be opened.');
+        this.loginOpen.set(true);
+        this.loginError.set('The workspace page could not be opened.');
       }
-    } catch (error) {
-      this.loginError = error instanceof TypeError
-        ? 'The login service is unavailable right now.'
-        : error instanceof Error ? error.message : 'Login failed.';
     } finally {
-      this.loginPending = false;
+      this.loginPending.set(false);
     }
+  }
+
+  private loginFailureMessage(status: number, serverError?: string): string {
+    if (status === 401) {
+      const account = this.loginRole === 'committee' ? 'Committee' : 'Executive Board';
+      return `Incorrect username or password for the ${account} account. Check the selected account type and try again.`;
+    }
+    if (status === 429) {
+      return 'Too many login attempts. Please wait a moment and try again.';
+    }
+    if (status >= 500) {
+      return 'The login service ran into a problem. Please try again later.';
+    }
+    return serverError || 'Login failed. Please try again.';
   }
 
   logout(): void {
@@ -170,7 +200,7 @@ export class App {
     }
     sessionStorage.removeItem('itpc-session-token');
     sessionStorage.removeItem('itpc-session-user');
-    this.currentUser = null;
+    this.currentUser.set(null);
   }
 
   private restoreSession(): AuthUser | null {

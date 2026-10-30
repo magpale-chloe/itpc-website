@@ -218,6 +218,7 @@ h2 { margin-bottom: 0; font-size: clamp(3rem, 6vw, 5.7rem); line-height: 0.93; }
 .login-panel label { margin-top: 8px; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .login-panel input { width: 100%; padding: 13px 12px; border: 1px solid rgba(0, 60, 92, 0.3); border-radius: 0; color: var(--darkblue); background: #fff; font: inherit; }
 .login-panel input:focus { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.login-panel input.invalid { border-color: #a64337; }
 .login-error { min-height: 20px; margin: 8px 0 0; color: #a64337; font-size: 0.8rem; }
 .login-submit { margin-top: 8px; padding: 14px 16px; border: 0; border-radius: 0; color: var(--paper); background: var(--darkblue); font: inherit; font-weight: 800; cursor: pointer; }
 .login-submit:hover:not(:disabled) { background: var(--teal); }

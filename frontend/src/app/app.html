@@ -13,8 +13,8 @@
 		<div class="nav-links">
 			<a href="#story">About us</a>
 			<a href="#connect">Connect</a>
-			@if (currentUser) {
-				<button class="admin-nav-button" type="button" (click)="openAdmin()">{{ currentUser.role === 'committee' ? 'Duty hours' : 'Admin' }}</button>
+			@if (currentUser(); as user) {
+				<button class="admin-nav-button" type="button" (click)="openAdmin()">{{ user.role === 'committee' ? 'Duty hours' : 'Admin' }}</button>
 			} @else {
 				<button class="login-nav-button" type="button" (click)="openLogin()">login</button>
 			}
@@ -84,7 +84,7 @@
 	</section>
 </main>
 
-@if (loginOpen) {
+@if (loginOpen()) {
 	<div class="login-backdrop" role="presentation" (click)="closeLogin()">
 		<section class="login-panel" role="dialog" aria-modal="true" aria-labelledby="login-title" (click)="$event.stopPropagation()">
 			<button class="login-close" type="button" aria-label="Close login" (click)="closeLogin()">×</button>
@@ -96,11 +96,11 @@
 			</div>
 			<form (submit)="$event.preventDefault(); login()">
 				<label for="username">Username</label>
-				<input id="username" name="username" type="text" autocomplete="username" [(ngModel)]="username">
+				<input id="username" name="username" type="text" autocomplete="username" [class.invalid]="loginError()" [attr.aria-invalid]="loginError() ? true : null" aria-describedby="login-error" [(ngModel)]="username" (ngModelChange)="clearLoginError()">
 				<label for="password">Password</label>
-				<input id="password" name="password" type="password" autocomplete="current-password" [(ngModel)]="password">
-				<p class="login-error" role="alert">{{ loginError }}</p>
-				<button class="login-submit" type="submit" [disabled]="loginPending">{{ loginPending ? 'Logging in...' : 'Log in' }} <span aria-hidden="true">↗</span></button>
+				<input id="password" name="password" type="password" autocomplete="current-password" [class.invalid]="loginError()" [attr.aria-invalid]="loginError() ? true : null" aria-describedby="login-error" [(ngModel)]="password" (ngModelChange)="clearLoginError()">
+				<p class="login-error" id="login-error" role="alert">{{ loginError() }}</p>
+				<button class="login-submit" type="submit" [disabled]="loginPending()">{{ loginPending() ? 'Logging in...' : 'Log in' }} <span aria-hidden="true">↗</span></button>
 			</form>
 			<p class="login-note">
 				@if (loginRole === 'committee') {
