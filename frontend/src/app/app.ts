@@ -42,6 +42,7 @@ export class App {
   loginRole: LoginRole = 'executive';
   username = '';
   password = '';
+  readonly passwordVisible = signal(false);
   readonly loginError = signal('');
   readonly loginPending = signal(false);
   readonly currentUser = signal<AuthUser | null>(this.restoreSession());
@@ -114,6 +115,7 @@ export class App {
   openLogin(): void {
     this.loginOpen.set(true);
     this.loginError.set('');
+    this.passwordVisible.set(false);
   }
 
   closeLogin(): void {
