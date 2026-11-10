@@ -1,5 +1,5 @@
 const LOCAL_BACKEND_URL = 'http://localhost:3000';
-const PRODUCTION_BACKEND_URL = 'https://itpc-photobooth.onrender.com';
+const PRODUCTION_BACKEND_URL = 'https://itpc-official-website.onrender.com';
 
 // Add your exact deployed frontend hostname here if you want to match a custom domain explicitly.
 const DEPLOYED_FRONTEND_HOSTS = [

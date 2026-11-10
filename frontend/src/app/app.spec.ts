@@ -21,6 +21,6 @@ describe('App', () => {
   });
 
   it('should use the hosted backend outside local development', () => {
-    expect(resolvePhotoApiBaseUrl('itpc-photobooth.onrender.com')).toBe('https://itpc-photobooth.onrender.com');
+    expect(resolvePhotoApiBaseUrl('itpc-official-website.onrender.com')).toBe('https://itpc-official-website.onrender.com');
   });
 });
