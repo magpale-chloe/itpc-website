@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Pool, PoolClient } from 'pg';
+import { Collection, Filter, MongoClient } from 'mongodb';
 
 export type DutyLogStatus = 'ACTIVE' | 'COMPLETED';
 export type MemberType = 'OFFICER' | 'JUNIOR_OFFICER' | 'COMMITTEE';
@@ -74,178 +74,142 @@ export interface DutyLogStore {
   listLogsBetween(from: Date, to: Date): Promise<DutyLog[]>;
 }
 
-type StudentRow = {
-  id: string;
+type StudentDocument = {
+  _id: string;
   name: string;
   rfid_uid: string;
+  // Lowercased copy of rfid_uid so a unique index can enforce case-insensitive card IDs.
+  rfid_uid_lower: string;
   position: string;
   member_type: MemberType;
   photo_url: string;
+  created_at: Date;
+  updated_at: Date;
 };
 
-const STUDENT_COLUMNS = 'id, name, rfid_uid, position, member_type, photo_url';
-const RECENT_COMPLETED_LIMIT = 50;
-
-type DutyLogRow = {
-  id: string;
+type DutyLogDocument = {
+  _id: string;
   student_id: string;
   student_name: string;
   rfid_uid: string;
   position: string;
   is_non_member: boolean;
-  clock_in_time: Date | string;
-  clock_out_time: Date | string | null;
+  clock_in_time: Date;
+  clock_out_time: Date | null;
   status: DutyLogStatus;
-  total_duty_hours: string | number | null;
+  total_duty_hours: number | null;
   scanned_by_officer_id: string | null;
   scanned_by_officer_name: string | null;
   scanned_by_clock_out_officer_id: string | null;
   scanned_by_clock_out_officer_name: string | null;
-  created_at: Date | string;
-  updated_at: Date | string;
+  created_at: Date;
+  updated_at: Date;
 };
 
-const schema = [
-  `CREATE TABLE IF NOT EXISTS students (
-    id text PRIMARY KEY,
-    name text NOT NULL,
-    rfid_uid text NOT NULL,
-    position text NOT NULL DEFAULT '',
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS students_rfid_uid_lower_unique
-    ON students (lower(rfid_uid))`,
-  `CREATE TABLE IF NOT EXISTS duty_logs (
-    id text PRIMARY KEY,
-    student_id text NOT NULL,
-    student_name text NOT NULL,
-    rfid_uid text NOT NULL,
-    position text NOT NULL DEFAULT '',
-    is_non_member boolean NOT NULL DEFAULT false,
-    clock_in_time timestamptz NOT NULL,
-    clock_out_time timestamptz,
-    status text NOT NULL CHECK (status IN ('ACTIVE', 'COMPLETED')),
-    total_duty_hours numeric(10, 2),
-    scanned_by_officer_id text,
-    scanned_by_officer_name text,
-    scanned_by_clock_out_officer_id text,
-    scanned_by_clock_out_officer_name text,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS duty_logs_one_active_per_student
-    ON duty_logs (student_id) WHERE status = 'ACTIVE'`,
-  `ALTER TABLE duty_logs ADD COLUMN IF NOT EXISTS is_non_member boolean NOT NULL DEFAULT false`,
-  `CREATE INDEX IF NOT EXISTS duty_logs_updated_at_desc ON duty_logs (updated_at DESC)`,
-  `ALTER TABLE students ADD COLUMN IF NOT EXISTS member_type text NOT NULL DEFAULT 'OFFICER'`,
-  `ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url text NOT NULL DEFAULT ''`,
-  `CREATE INDEX IF NOT EXISTS duty_logs_clock_in_time ON duty_logs (clock_in_time)`
-];
+const RECENT_COMPLETED_LIMIT = 50;
+const NAME_COLLATION = { locale: 'en', strength: 2 } as const;
 
-export class PostgresDutyLogStore implements DutyLogStore {
-  private readonly pool: Pool;
+export interface MongoDutyLogStoreOptions {
+  // Database to use; defaults to the database named in the connection URI.
+  dbName?: string;
+}
 
-  constructor(connectionString: string, pool?: Pool) {
-    if (!connectionString.trim()) {
-      throw new Error('DATABASE_URL must be configured to start the backend');
+// Every write is a single-document operation guarded by unique indexes, so this works on
+// standalone MongoDB servers as well as replica sets and Atlas (no transactions required).
+export class MongoDutyLogStore implements DutyLogStore {
+  private readonly client: MongoClient;
+  private readonly students: Collection<StudentDocument>;
+  private readonly logs: Collection<DutyLogDocument>;
+
+  constructor(uri: string, options: MongoDutyLogStoreOptions = {}) {
+    if (!uri.trim()) {
+      throw new Error('MONGODB_URI must be configured to start the backend');
     }
-    this.pool = pool ?? new Pool({
-      connectionString,
-      ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : undefined
-    });
-    this.pool.on('error', (error) => {
-      console.error('Unexpected PostgreSQL pool error:', error);
-    });
+    this.client = new MongoClient(uri);
+    const db = this.client.db(options.dbName || undefined);
+    this.students = db.collection<StudentDocument>('students');
+    this.logs = db.collection<DutyLogDocument>('duty_logs');
   }
 
   async initialize(): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      for (const statement of schema) {
-        await client.query(statement);
-      }
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    await this.client.connect();
+    await Promise.all([
+      this.students.createIndex({ rfid_uid_lower: 1 }, { unique: true, name: 'students_rfid_uid_lower_unique' }),
+      this.logs.createIndex(
+        { student_id: 1 },
+        { unique: true, partialFilterExpression: { status: 'ACTIVE' }, name: 'duty_logs_one_active_per_student' }
+      ),
+      this.logs.createIndex({ student_id: 1, clock_in_time: 1 }, { name: 'duty_logs_student_clock_in' }),
+      this.logs.createIndex({ status: 1, updated_at: -1 }, { name: 'duty_logs_status_updated_at' }),
+      this.logs.createIndex({ clock_in_time: 1 }, { name: 'duty_logs_clock_in_time' })
+    ]);
   }
 
   async close(): Promise<void> {
-    await this.pool.end();
+    await this.client.close();
   }
 
   async listStudents(): Promise<Student[]> {
-    const { rows } = await this.pool.query<StudentRow>(
-      `SELECT ${STUDENT_COLUMNS} FROM students ORDER BY name`
-    );
-    return rows.map(mapStudent);
+    const documents = await this.students.find().sort({ name: 1 }).collation(NAME_COLLATION).toArray();
+    return documents.map(mapStudent);
   }
 
   async createStudent(input: StudentInput): Promise<Student> {
+    const now = new Date();
+    const document: StudentDocument = {
+      _id: randomUUID(),
+      name: input.name,
+      rfid_uid: input.rfid_uid,
+      rfid_uid_lower: input.rfid_uid.toLowerCase(),
+      position: input.position,
+      member_type: input.member_type ?? 'OFFICER',
+      photo_url: input.photo_url ?? '',
+      created_at: now,
+      updated_at: now
+    };
     try {
-      const { rows } = await this.pool.query<StudentRow>(
-        `INSERT INTO students (id, name, rfid_uid, position, member_type, photo_url)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING ${STUDENT_COLUMNS}`,
-        [randomUUID(), input.name, input.rfid_uid, input.position, input.member_type ?? 'OFFICER', input.photo_url ?? '']
-      );
-      return mapStudent(rows[0]);
+      await this.students.insertOne(document);
     } catch (error) {
       throw mapDatabaseError(error, 'That RFID card ID is already assigned to another student');
     }
+    return mapStudent(document);
   }
 
   async updateStudent(id: string, input: StudentInput): Promise<Student> {
+    const changes: Partial<StudentDocument> = {
+      name: input.name,
+      rfid_uid: input.rfid_uid,
+      rfid_uid_lower: input.rfid_uid.toLowerCase(),
+      position: input.position,
+      updated_at: new Date()
+    };
+    if (input.member_type !== undefined) {
+      changes.member_type = input.member_type;
+    }
+    if (input.photo_url !== undefined) {
+      changes.photo_url = input.photo_url;
+    }
+
+    let updated: StudentDocument | null;
     try {
-      const { rows } = await this.pool.query<StudentRow>(
-        `UPDATE students
-         SET name = $2, rfid_uid = $3, position = $4,
-             member_type = COALESCE($5, member_type), photo_url = COALESCE($6, photo_url),
-             updated_at = now()
-         WHERE id = $1
-         RETURNING ${STUDENT_COLUMNS}`,
-        [id, input.name, input.rfid_uid, input.position, input.member_type ?? null, input.photo_url ?? null]
-      );
-      if (!rows[0]) {
-        throw new StoreError(404, 'Student not found');
-      }
-      return mapStudent(rows[0]);
+      updated = await this.students.findOneAndUpdate({ _id: id }, { $set: changes }, { returnDocument: 'after' });
     } catch (error) {
       throw mapDatabaseError(error, 'That RFID card ID is already assigned to another student');
     }
+    if (!updated) {
+      throw new StoreError(404, 'Student not found');
+    }
+    return mapStudent(updated);
   }
 
   async deleteStudent(id: string): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const student = await client.query(
-        `SELECT id FROM students WHERE id = $1 FOR UPDATE`,
-        [id]
-      );
-      if (!student.rowCount) {
-        throw new StoreError(404, 'Student not found');
-      }
-      const activeLog = await client.query(
-        `SELECT id FROM duty_logs WHERE student_id = $1 AND status = 'ACTIVE' LIMIT 1`,
-        [id]
-      );
-      if (activeLog.rowCount) {
-        throw new StoreError(409, 'This member has an active duty log. Clock them out before removing them.');
-      }
-      await client.query('DELETE FROM students WHERE id = $1', [id]);
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+    if (!(await this.findStudent(id))) {
+      throw new StoreError(404, 'Student not found');
     }
+    if (await this.logs.findOne({ student_id: id, status: 'ACTIVE' }, { projection: { _id: 1 } })) {
+      throw new StoreError(409, 'This member has an active duty log. Clock them out before removing them.');
+    }
+    await this.students.deleteOne({ _id: id });
   }
 
   async recordScan(
@@ -253,254 +217,157 @@ export class PostgresDutyLogStore implements DutyLogStore {
     officerId?: string,
     fallbackOfficer?: OfficerIdentity | null
   ): Promise<DutyScanResult> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const studentResult = await client.query<StudentRow>(
-        `SELECT ${STUDENT_COLUMNS}
-         FROM students
-         WHERE lower(rfid_uid) = lower($1)
-         FOR UPDATE`,
-        [identifier]
+    const studentDocument = await this.students.findOne({ rfid_uid_lower: identifier.toLowerCase() });
+    if (!studentDocument) {
+      throw new StoreError(404, 'Card not registered');
+    }
+    const student = mapStudent(studentDocument);
+
+    let officer = fallbackOfficer ?? null;
+    if (officerId) {
+      const selected = ensureClockingOfficer(await this.findStudent(officerId));
+      officer = { id: selected.id, name: selected.name };
+    }
+
+    const now = new Date();
+    const activeLog = await this.logs.findOne({ student_id: student.id, status: 'ACTIVE' });
+    if (activeLog) {
+      // Matching on status means a concurrent scan that already clocked this log out wins.
+      const completed = await this.logs.findOneAndUpdate(
+        { _id: activeLog._id, status: 'ACTIVE' },
+        {
+          $set: {
+            clock_out_time: now,
+            status: 'COMPLETED',
+            total_duty_hours: hoursBetween(activeLog.clock_in_time, now),
+            scanned_by_clock_out_officer_id: officer?.id ?? null,
+            scanned_by_clock_out_officer_name: officer?.name ?? null,
+            updated_at: now
+          }
+        },
+        { returnDocument: 'after' }
       );
-      const student = studentResult.rows[0];
-      if (!student) {
-        throw new StoreError(404, 'Card not registered');
-      }
-
-      let officer = fallbackOfficer ?? null;
-      if (officerId) {
-        const officerResult = await client.query<StudentRow>(
-          `SELECT ${STUDENT_COLUMNS} FROM students WHERE id = $1`,
-          [officerId]
-        );
-        const selected = ensureClockingOfficer(officerResult.rows[0]);
-        officer = { id: selected.id, name: selected.name };
-      }
-
-      const now = new Date();
-      const activeResult = await client.query<DutyLogRow>(
-        `SELECT * FROM duty_logs
-         WHERE student_id = $1 AND status = 'ACTIVE'
-         FOR UPDATE`,
-        [student.id]
-      );
-      let result: DutyScanResult;
-
-      if (activeResult.rows[0]) {
-        const activeLog = mapDutyLog(activeResult.rows[0]);
-        const totalDutyHours = Number(
-          ((now.getTime() - new Date(activeLog.clockInTime).getTime()) / 3_600_000).toFixed(2)
-        );
-        const { rows } = await client.query<DutyLogRow>(
-          `UPDATE duty_logs
-           SET clock_out_time = $2, status = 'COMPLETED', total_duty_hours = $3,
-               scanned_by_clock_out_officer_id = $4, scanned_by_clock_out_officer_name = $5,
-               updated_at = $2
-           WHERE id = $1
-           RETURNING *`,
-          [activeLog.id, now, totalDutyHours, officer?.id ?? null, officer?.name ?? null]
-        );
-        result = { ...mapDutyLog(rows[0]), action: 'CLOCK_OUT', timestamp: now.toISOString() };
-      } else {
-        const { rows } = await client.query<DutyLogRow>(
-          `INSERT INTO duty_logs (
-            id, student_id, student_name, rfid_uid, position, clock_in_time, status,
-            scanned_by_officer_id, scanned_by_officer_name
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE', $7, $8)
-          RETURNING *`,
-          [randomUUID(), student.id, student.name, student.rfid_uid, student.position, now, officer?.id ?? null, officer?.name ?? null]
-        );
-        result = { ...mapDutyLog(rows[0]), action: 'CLOCK_IN', timestamp: now.toISOString() };
-      }
-
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      if (isUniqueViolation(error)) {
+      if (!completed) {
         throw new StoreError(409, 'A scan for this member is already being recorded. Please try again.');
       }
-      throw error;
-    } finally {
-      client.release();
+      return { ...mapDutyLog(completed), action: 'CLOCK_OUT', timestamp: now.toISOString() };
     }
+
+    const document = newLogDocument({
+      student_id: student.id,
+      student_name: student.name,
+      rfid_uid: student.rfid_uid,
+      position: student.position,
+      clock_in_time: now,
+      status: 'ACTIVE',
+      scanned_by_officer_id: officer?.id ?? null,
+      scanned_by_officer_name: officer?.name ?? null
+    }, now);
+    try {
+      await this.logs.insertOne(document);
+    } catch (error) {
+      throw mapDatabaseError(error, 'A scan for this member is already being recorded. Please try again.');
+    }
+    return { ...mapDutyLog(document), action: 'CLOCK_IN', timestamp: now.toISOString() };
   }
 
   async createManualLog(name: string, officerId: string): Promise<DutyScanResult> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const officerResult = await client.query<StudentRow>(
-        `SELECT ${STUDENT_COLUMNS} FROM students WHERE id = $1`,
-        [officerId]
-      );
-      const officer = ensureClockingOfficer(officerResult.rows[0]);
-
-      const now = new Date();
-      const { rows } = await client.query<DutyLogRow>(
-        `INSERT INTO duty_logs (
-          id, student_id, student_name, rfid_uid, position, is_non_member, clock_in_time, status,
-          scanned_by_officer_id, scanned_by_officer_name
-        )
-        VALUES ($1, $2, $3, '', '', true, $4, 'ACTIVE', $5, $6)
-        RETURNING *`,
-        [randomUUID(), randomUUID(), name, now, officer.id, officer.name]
-      );
-      await client.query('COMMIT');
-      return { ...mapDutyLog(rows[0]), action: 'CLOCK_IN', timestamp: now.toISOString() };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    const officer = ensureClockingOfficer(await this.findStudent(officerId));
+    const now = new Date();
+    const document = newLogDocument({
+      student_id: randomUUID(),
+      student_name: name,
+      rfid_uid: '',
+      position: '',
+      is_non_member: true,
+      clock_in_time: now,
+      status: 'ACTIVE',
+      scanned_by_officer_id: officer.id,
+      scanned_by_officer_name: officer.name
+    }, now);
+    await this.logs.insertOne(document);
+    return { ...mapDutyLog(document), action: 'CLOCK_IN', timestamp: now.toISOString() };
   }
 
   async clockOutLog(id: string): Promise<DutyScanResult> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const current = await client.query<DutyLogRow>(
-        `SELECT * FROM duty_logs WHERE id = $1 FOR UPDATE`,
-        [id]
-      );
-      const activeLog = current.rows[0];
-      if (!activeLog) {
-        throw new StoreError(404, 'Duty log not found');
-      }
-      if (activeLog.status !== 'ACTIVE') {
-        throw new StoreError(409, 'This duty log is already completed');
-      }
-
-      const now = new Date();
-      const totalDutyHours = Number(
-        ((now.getTime() - new Date(activeLog.clock_in_time).getTime()) / 3_600_000).toFixed(2)
-      );
-      const { rows } = await client.query<DutyLogRow>(
-        `UPDATE duty_logs
-         SET clock_out_time = $2, status = 'COMPLETED', total_duty_hours = $3, updated_at = $2
-         WHERE id = $1
-         RETURNING *`,
-        [id, now, totalDutyHours]
-      );
-      await client.query('COMMIT');
-      return { ...mapDutyLog(rows[0]), action: 'CLOCK_OUT', timestamp: now.toISOString() };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+    const activeLog = await this.logs.findOne({ _id: id });
+    if (!activeLog) {
+      throw new StoreError(404, 'Duty log not found');
     }
+    if (activeLog.status !== 'ACTIVE') {
+      throw new StoreError(409, 'This duty log is already completed');
+    }
+
+    const now = new Date();
+    const completed = await this.logs.findOneAndUpdate(
+      { _id: id, status: 'ACTIVE' },
+      {
+        $set: {
+          clock_out_time: now,
+          status: 'COMPLETED',
+          total_duty_hours: hoursBetween(activeLog.clock_in_time, now),
+          updated_at: now
+        }
+      },
+      { returnDocument: 'after' }
+    );
+    if (!completed) {
+      throw new StoreError(409, 'This duty log is already completed');
+    }
+    return { ...mapDutyLog(completed), action: 'CLOCK_OUT', timestamp: now.toISOString() };
   }
 
   async updateLogTimes(id: string, clockInTime: Date, clockOutTime: Date | null): Promise<DutyLog> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const current = await client.query<DutyLogRow>(
-        `SELECT * FROM duty_logs WHERE id = $1 FOR UPDATE`,
-        [id]
-      );
-      const log = current.rows[0];
-      if (!log) {
-        throw new StoreError(404, 'Duty log not found');
-      }
-      ensureEditableTimes(log.status, clockOutTime);
-      await this.ensureNoStudentOverlap(client, log.student_id, clockInTime, clockOutTime, id);
-
-      const { rows } = await client.query<DutyLogRow>(
-        `UPDATE duty_logs
-         SET clock_in_time = $2, clock_out_time = $3, total_duty_hours = $4, status = $5, updated_at = now()
-         WHERE id = $1
-         RETURNING *`,
-        [
-          id,
-          clockInTime,
-          clockOutTime,
-          clockOutTime ? hoursBetween(clockInTime, clockOutTime) : null,
-          clockOutTime ? 'COMPLETED' : log.status
-        ]
-      );
-      await client.query('COMMIT');
-      return mapDutyLog(rows[0]);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+    const log = await this.logs.findOne({ _id: id });
+    if (!log) {
+      throw new StoreError(404, 'Duty log not found');
     }
+    ensureEditableTimes(log.status, clockOutTime);
+    await this.ensureNoStudentOverlap(log.student_id, clockInTime, clockOutTime, id);
+
+    const updated = await this.logs.findOneAndUpdate(
+      { _id: id },
+      {
+        $set: {
+          clock_in_time: clockInTime,
+          clock_out_time: clockOutTime,
+          total_duty_hours: clockOutTime ? hoursBetween(clockInTime, clockOutTime) : null,
+          status: clockOutTime ? 'COMPLETED' : log.status,
+          updated_at: new Date()
+        }
+      },
+      { returnDocument: 'after' }
+    );
+    if (!updated) {
+      throw new StoreError(404, 'Duty log not found');
+    }
+    return mapDutyLog(updated);
   }
 
   async createCompletedLog(studentId: string, clockInTime: Date, clockOutTime: Date): Promise<DutyLog> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const studentResult = await client.query<StudentRow>(
-        `SELECT ${STUDENT_COLUMNS} FROM students WHERE id = $1 FOR UPDATE`,
-        [studentId]
-      );
-      const student = studentResult.rows[0];
-      if (!student) {
-        throw new StoreError(404, 'Student not found');
-      }
-      await this.ensureNoStudentOverlap(client, student.id, clockInTime, clockOutTime);
-
-      const { rows } = await client.query<DutyLogRow>(
-        `INSERT INTO duty_logs (
-          id, student_id, student_name, rfid_uid, position, clock_in_time, clock_out_time, status, total_duty_hours
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'COMPLETED', $8)
-        RETURNING *`,
-        [
-          randomUUID(),
-          student.id,
-          student.name,
-          student.rfid_uid,
-          student.position,
-          clockInTime,
-          clockOutTime,
-          hoursBetween(clockInTime, clockOutTime)
-        ]
-      );
-      await client.query('COMMIT');
-      return mapDutyLog(rows[0]);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+    const student = await this.findStudent(studentId);
+    if (!student) {
+      throw new StoreError(404, 'Student not found');
     }
-  }
+    await this.ensureNoStudentOverlap(student.id, clockInTime, clockOutTime);
 
-  private async ensureNoStudentOverlap(
-    client: PoolClient,
-    studentId: string,
-    clockInTime: Date,
-    clockOutTime: Date | null,
-    exceptId?: string
-  ): Promise<void> {
-    // The member is matched in code: pg-mem answers student_id filters from the active-only partial index.
-    const { rows } = await client.query<Pick<DutyLogRow, 'id' | 'student_id' | 'clock_in_time' | 'clock_out_time'>>(
-      `SELECT id, student_id, clock_in_time, clock_out_time FROM duty_logs
-       WHERE (clock_out_time IS NULL OR clock_out_time > $1)
-         AND ($2::timestamptz IS NULL OR clock_in_time < $2)`,
-      [clockInTime, clockOutTime]
-    );
-    ensureNoOverlap(
-      rows.filter((row) => row.student_id === studentId && row.id !== exceptId).map((row) => ({
-        clockInTime: toIso(row.clock_in_time),
-        clockOutTime: row.clock_out_time === null ? undefined : toIso(row.clock_out_time)
-      })),
-      clockInTime,
-      clockOutTime
-    );
+    const document = newLogDocument({
+      student_id: student.id,
+      student_name: student.name,
+      rfid_uid: student.rfid_uid,
+      position: student.position,
+      clock_in_time: clockInTime,
+      clock_out_time: clockOutTime,
+      status: 'COMPLETED',
+      total_duty_hours: hoursBetween(clockInTime, clockOutTime)
+    }, new Date());
+    await this.logs.insertOne(document);
+    return mapDutyLog(document);
   }
 
   async deleteLog(id: string): Promise<void> {
-    const result = await this.pool.query('DELETE FROM duty_logs WHERE id = $1', [id]);
-    if (!result.rowCount) {
+    const result = await this.logs.deleteOne({ _id: id });
+    if (!result.deletedCount) {
       throw new StoreError(404, 'Duty log not found');
     }
   }
@@ -508,25 +375,73 @@ export class PostgresDutyLogStore implements DutyLogStore {
   // Every active log is returned so nobody on duty drops off the list, followed by the latest completed ones.
   async listRecentLogs(): Promise<DutyLog[]> {
     const [active, completed] = await Promise.all([
-      this.pool.query<DutyLogRow>(
-        `SELECT * FROM duty_logs WHERE status = 'ACTIVE' ORDER BY clock_in_time DESC`
-      ),
-      this.pool.query<DutyLogRow>(
-        `SELECT * FROM duty_logs WHERE status = 'COMPLETED' ORDER BY updated_at DESC LIMIT ${RECENT_COMPLETED_LIMIT}`
-      )
+      this.logs.find({ status: 'ACTIVE' }).sort({ clock_in_time: -1 }).toArray(),
+      this.logs.find({ status: 'COMPLETED' }).sort({ updated_at: -1 }).limit(RECENT_COMPLETED_LIMIT).toArray()
     ]);
-    return [...active.rows, ...completed.rows].map(mapDutyLog);
+    return [...active, ...completed].map(mapDutyLog);
   }
 
   async listLogsBetween(from: Date, to: Date): Promise<DutyLog[]> {
-    const { rows } = await this.pool.query<DutyLogRow>(
-      `SELECT * FROM duty_logs
-       WHERE clock_in_time >= $1 AND clock_in_time < $2
-       ORDER BY clock_in_time`,
-      [from, to]
-    );
-    return rows.map(mapDutyLog);
+    const documents = await this.logs
+      .find({ clock_in_time: { $gte: from, $lt: to } })
+      .sort({ clock_in_time: 1 })
+      .toArray();
+    return documents.map(mapDutyLog);
   }
+
+  private async findStudent(id: string): Promise<Student | undefined> {
+    const document = await this.students.findOne({ _id: id });
+    return document ? mapStudent(document) : undefined;
+  }
+
+  private async ensureNoStudentOverlap(
+    studentId: string,
+    clockInTime: Date,
+    clockOutTime: Date | null,
+    exceptId?: string
+  ): Promise<void> {
+    const filter: Filter<DutyLogDocument> = {
+      student_id: studentId,
+      $or: [{ clock_out_time: null }, { clock_out_time: { $gt: clockInTime } }]
+    };
+    if (clockOutTime) {
+      filter.clock_in_time = { $lt: clockOutTime };
+    }
+    if (exceptId) {
+      filter._id = { $ne: exceptId };
+    }
+    const documents = await this.logs
+      .find(filter, { projection: { clock_in_time: 1, clock_out_time: 1 } })
+      .toArray();
+    ensureNoOverlap(
+      documents.map((document) => ({
+        clockInTime: document.clock_in_time.toISOString(),
+        clockOutTime: document.clock_out_time?.toISOString()
+      })),
+      clockInTime,
+      clockOutTime
+    );
+  }
+}
+
+function newLogDocument(
+  fields: Pick<DutyLogDocument, 'student_id' | 'student_name' | 'rfid_uid' | 'position' | 'clock_in_time' | 'status'> &
+    Partial<DutyLogDocument>,
+  now: Date
+): DutyLogDocument {
+  return {
+    _id: randomUUID(),
+    is_non_member: false,
+    clock_out_time: null,
+    total_duty_hours: null,
+    scanned_by_officer_id: null,
+    scanned_by_officer_name: null,
+    scanned_by_clock_out_officer_id: null,
+    scanned_by_clock_out_officer_name: null,
+    created_at: now,
+    updated_at: now,
+    ...fields
+  };
 }
 
 export class MemoryDutyLogStore implements DutyLogStore {
@@ -753,14 +668,14 @@ export class MemoryDutyLogStore implements DutyLogStore {
   }
 }
 
-function mapStudent(row: StudentRow): Student {
+function mapStudent(document: StudentDocument): Student {
   return {
-    id: row.id,
-    name: row.name,
-    rfid_uid: row.rfid_uid,
-    position: row.position,
-    member_type: isMemberType(row.member_type) ? row.member_type : 'OFFICER',
-    photo_url: row.photo_url ?? ''
+    id: document._id,
+    name: document.name,
+    rfid_uid: document.rfid_uid,
+    position: document.position ?? '',
+    member_type: isMemberType(document.member_type) ? document.member_type : 'OFFICER',
+    photo_url: document.photo_url ?? ''
   };
 }
 
@@ -808,40 +723,36 @@ function hoursBetween(from: Date, to: Date): number {
   return Number(((to.getTime() - from.getTime()) / 3_600_000).toFixed(2));
 }
 
-function mapDutyLog(row: DutyLogRow): DutyLog {
+function mapDutyLog(document: DutyLogDocument): DutyLog {
   return {
-    id: row.id,
-    studentId: row.student_id,
-    studentName: row.student_name,
-    rfidUid: row.rfid_uid,
-    position: row.position,
-    isNonMember: row.is_non_member,
-    clockInTime: toIso(row.clock_in_time),
-    clockOutTime: row.clock_out_time === null ? undefined : toIso(row.clock_out_time),
-    status: row.status,
-    totalDutyHours: row.total_duty_hours === null ? undefined : Number(row.total_duty_hours),
-    scannedByOfficerId: row.scanned_by_officer_id ?? undefined,
-    scannedByOfficerName: row.scanned_by_officer_name ?? undefined,
-    scannedByClockOutOfficerId: row.scanned_by_clock_out_officer_id ?? undefined,
-    scannedByClockOutOfficerName: row.scanned_by_clock_out_officer_name ?? undefined,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at)
+    id: document._id,
+    studentId: document.student_id,
+    studentName: document.student_name,
+    rfidUid: document.rfid_uid,
+    position: document.position,
+    isNonMember: document.is_non_member,
+    clockInTime: document.clock_in_time.toISOString(),
+    clockOutTime: document.clock_out_time?.toISOString(),
+    status: document.status,
+    totalDutyHours: document.total_duty_hours ?? undefined,
+    scannedByOfficerId: document.scanned_by_officer_id ?? undefined,
+    scannedByOfficerName: document.scanned_by_officer_name ?? undefined,
+    scannedByClockOutOfficerId: document.scanned_by_clock_out_officer_id ?? undefined,
+    scannedByClockOutOfficerName: document.scanned_by_clock_out_officer_name ?? undefined,
+    createdAt: document.created_at.toISOString(),
+    updatedAt: document.updated_at.toISOString()
   };
 }
 
-function toIso(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
+function isDuplicateKeyError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
 }
 
 function mapDatabaseError(error: unknown, duplicateMessage: string): unknown {
   if (error instanceof StoreError) {
     return error;
   }
-  if (isUniqueViolation(error)) {
+  if (isDuplicateKeyError(error)) {
     return new StoreError(409, duplicateMessage);
   }
   return error;

@@ -1,14 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newDb } from 'pg-mem';
-import { PostgresDutyLogStore } from './duty-log-store.ts';
+import { randomUUID } from 'node:crypto';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoDutyLogStore } from './duty-log-store.ts';
 
-test('PostgreSQL store retains members and completed attendance across store instances', { concurrency: false }, async () => {
-  const database = newDb({ noAstCoverageCheck: true });
-  const pg = database.adapters.createPg();
-  const firstPool = new pg.Pool();
-  const firstStore = new PostgresDutyLogStore('postgres://test:test@localhost/test', firstPool);
-  const secondStore = new PostgresDutyLogStore('postgres://test:test@localhost/test', new pg.Pool());
+let server: MongoMemoryServer;
+
+test.before(async () => {
+  server = await MongoMemoryServer.create();
+});
+
+test.after(async () => {
+  await server?.stop();
+});
+
+// Each test gets its own database so the tests stay independent.
+function createStore(dbName = `test-${randomUUID()}`): MongoDutyLogStore {
+  return new MongoDutyLogStore(server.getUri(), { dbName });
+}
+
+test('MongoDB store retains members and completed attendance across store instances', { concurrency: false }, async () => {
+  const dbName = `test-${randomUUID()}`;
+  const firstStore = createStore(dbName);
+  const secondStore = createStore(dbName);
 
   try {
     await firstStore.initialize();
@@ -60,10 +74,8 @@ test('PostgreSQL store retains members and completed attendance across store ins
   }
 });
 
-test('PostgreSQL store saves member types and photos and lists logs by clock-in range', { concurrency: false }, async () => {
-  const database = newDb({ noAstCoverageCheck: true });
-  const pg = database.adapters.createPg();
-  const store = new PostgresDutyLogStore('postgres://test:test@localhost/test', new pg.Pool());
+test('MongoDB store saves member types and photos and lists logs by clock-in range', { concurrency: false }, async () => {
+  const store = createStore();
 
   try {
     await store.initialize();
@@ -94,10 +106,8 @@ test('PostgreSQL store saves member types and photos and lists logs by clock-in 
   }
 });
 
-test('PostgreSQL store edits duty log times and recalculates hours', { concurrency: false }, async () => {
-  const database = newDb({ noAstCoverageCheck: true });
-  const pg = database.adapters.createPg();
-  const store = new PostgresDutyLogStore('postgres://test:test@localhost/test', new pg.Pool());
+test('MongoDB store edits duty log times and recalculates hours', { concurrency: false }, async () => {
+  const store = createStore();
 
   try {
     await store.initialize();
@@ -120,10 +130,8 @@ test('PostgreSQL store edits duty log times and recalculates hours', { concurren
   }
 });
 
-test('PostgreSQL store adds past completed sessions and rejects overlaps', { concurrency: false }, async () => {
-  const database = newDb({ noAstCoverageCheck: true });
-  const pg = database.adapters.createPg();
-  const store = new PostgresDutyLogStore('postgres://test:test@localhost/test', new pg.Pool());
+test('MongoDB store adds past completed sessions and rejects overlaps', { concurrency: false }, async () => {
+  const store = createStore();
 
   try {
     await store.initialize();
@@ -145,6 +153,30 @@ test('PostgreSQL store adds past completed sessions and rejects overlaps', { con
       store.createCompletedLog('missing', new Date('2026-01-05T11:00:00.000Z'), new Date('2026-01-05T12:00:00.000Z')),
       { status: 404 }
     );
+  } finally {
+    await store.close();
+  }
+});
+
+test('MongoDB store rejects duplicate cards case-insensitively and blocks deleting members on duty', { concurrency: false }, async () => {
+  const store = createStore();
+
+  try {
+    await store.initialize();
+    const member = await store.createStudent({ name: 'Card Owner', rfid_uid: 'CARD-A', position: '' });
+    await assert.rejects(store.createStudent({ name: 'Copycat', rfid_uid: 'card-a', position: '' }), { status: 409 });
+    const other = await store.createStudent({ name: 'Other', rfid_uid: 'card-b', position: '' });
+    await assert.rejects(store.updateStudent(other.id, { name: 'Other', rfid_uid: 'Card-A', position: '' }), { status: 409 });
+    await assert.rejects(store.updateStudent('missing', { name: 'X', rfid_uid: 'card-z', position: '' }), { status: 404 });
+
+    const clockIn = await store.recordScan('card-a');
+    assert.equal(clockIn.studentId, member.id);
+    await assert.rejects(store.deleteStudent(member.id), { status: 409 });
+    await store.clockOutLog(clockIn.id);
+    await assert.rejects(store.clockOutLog(clockIn.id), { status: 409 });
+    await store.deleteStudent(member.id);
+    await assert.rejects(store.deleteStudent(member.id), { status: 404 });
+    assert.deepEqual((await store.listStudents()).map((entry) => entry.name), ['Other']);
   } finally {
     await store.close();
   }
