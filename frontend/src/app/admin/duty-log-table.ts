@@ -45,6 +45,7 @@ interface ScanFlash {
 }
 
 const SCAN_FLASH_MS = 4000;
+const LOG_PAGE_SIZE = 10;
 // Keyboard-style RFID readers type each character within a few milliseconds; people type far slower.
 const READER_KEY_GAP_MS = 60;
 const MIN_CARD_ID_LENGTH = 4;
@@ -98,6 +99,19 @@ export class DutyLogTable implements OnInit, OnDestroy {
         const rightTime = leftActive ? right.clockInTime ?? right.timestamp : right.clockOutTime ?? right.timestamp;
         return rightTime.localeCompare(leftTime);
       });
+  });
+  readonly logPage = signal(0);
+  readonly logPageCount = computed(() => Math.max(1, Math.ceil(this.filteredLogs().length / LOG_PAGE_SIZE)));
+  // Clamped so the page stays valid when logs are deleted or refreshed down to fewer pages.
+  readonly currentLogPage = computed(() => Math.min(this.logPage(), this.logPageCount() - 1));
+  readonly pagedLogs = computed(() => {
+    const start = this.currentLogPage() * LOG_PAGE_SIZE;
+    return this.filteredLogs().slice(start, start + LOG_PAGE_SIZE);
+  });
+  readonly logRangeLabel = computed(() => {
+    const total = this.filteredLogs().length;
+    const start = this.currentLogPage() * LOG_PAGE_SIZE;
+    return total ? `${start + 1}–${Math.min(start + LOG_PAGE_SIZE, total)} of ${total}` : '0 of 0';
   });
   readonly scanFlash = signal<ScanFlash | null>(null);
   readonly loading = signal(false);
@@ -534,6 +548,27 @@ export class DutyLogTable implements OnInit, OnDestroy {
     this.logSearch.set('');
     this.logStatusFilter.set('ALL');
     this.logTypeFilter.set('ALL');
+    this.logPage.set(0);
+  }
+
+  // Filters change which logs exist, so go back to the first page.
+  setLogSearch(value: string): void {
+    this.logSearch.set(value);
+    this.logPage.set(0);
+  }
+
+  setLogStatusFilter(value: LogStatusFilter): void {
+    this.logStatusFilter.set(value);
+    this.logPage.set(0);
+  }
+
+  setLogTypeFilter(value: LogTypeFilter): void {
+    this.logTypeFilter.set(value);
+    this.logPage.set(0);
+  }
+
+  goToLogPage(page: number): void {
+    this.logPage.set(Math.max(0, Math.min(page, this.logPageCount() - 1)));
   }
 
   private getLogType(entry: DutyLogEntry): LogTypeFilter {

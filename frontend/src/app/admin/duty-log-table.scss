@@ -319,6 +319,33 @@ button:disabled {
   margin-top: 20px;
 }
 
+.log-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  color: #003c5c;
+  font-size: 0.8rem;
+}
+
+.log-page-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.log-page-number {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.log-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

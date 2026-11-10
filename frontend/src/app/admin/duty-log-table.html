@@ -335,11 +335,11 @@
           name="logSearch"
           placeholder="Name, card, position, or officer"
           [ngModel]="logSearch()"
-          (ngModelChange)="logSearch.set($event)">
+          (ngModelChange)="setLogSearch($event)">
       </label>
       <label>
         Status
-        <select name="logStatus" [ngModel]="logStatusFilter()" (ngModelChange)="logStatusFilter.set($event)">
+        <select name="logStatus" [ngModel]="logStatusFilter()" (ngModelChange)="setLogStatusFilter($event)">
           <option value="ALL">All statuses</option>
           <option value="ACTIVE">On duty ({{ activeLogCount() }})</option>
           <option value="COMPLETED">Completed</option>
@@ -347,7 +347,7 @@
       </label>
       <label>
         Member type
-        <select name="logType" [ngModel]="logTypeFilter()" (ngModelChange)="logTypeFilter.set($event)">
+        <select name="logType" [ngModel]="logTypeFilter()" (ngModelChange)="setLogTypeFilter($event)">
           <option value="ALL">All members</option>
           @for (option of memberTypeOptions; track option.value) {
             <option [value]="option.value">{{ option.label }}</option>
@@ -381,7 +381,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (log of filteredLogs(); track log.id ?? log.timestamp) {
+            @for (log of pagedLogs(); track log.id ?? log.timestamp) {
               @let member = getLogMember(log);
               <tr [class.active-row]="log.status === 'ACTIVE'">
                 <td>
@@ -447,6 +447,28 @@
           </tbody>
         </table>
       </div>
+      @if (filteredLogs().length) {
+        <nav class="log-pagination" aria-label="Duty log pages">
+          <span class="log-page-range" aria-live="polite">Showing {{ logRangeLabel() }}</span>
+          <div class="log-page-buttons">
+            <button
+              type="button"
+              class="refresh-btn"
+              [disabled]="currentLogPage() === 0"
+              (click)="goToLogPage(currentLogPage() - 1)">
+              Previous
+            </button>
+            <span class="log-page-number">Page {{ currentLogPage() + 1 }} of {{ logPageCount() }}</span>
+            <button
+              type="button"
+              class="refresh-btn"
+              [disabled]="currentLogPage() >= logPageCount() - 1"
+              (click)="goToLogPage(currentLogPage() + 1)">
+              Next
+            </button>
+          </div>
+        </nav>
+      }
     }
   </section>
 </section>
